@@ -449,11 +449,40 @@
     return out;
   }
 
+  function occurrenceListHTML(sched, today){
+    const dates = occurrences(sched, 8);
+    return dates.slice(0,6).map(d => {
+      const paid = d < today;
+      return `<div class="sched-item"><span>${dayFmt(d)}</span>
+        <span class="badge ${paid?'paid':'due'}">${paid?'Paid':'Due'}</span></div>`;
+    }).join('');
+  }
+
+  function updateNextPill(){
+    const today = new Date(); today.setHours(0,0,0,0);
+    const nextByShed = schedules.map(sched => {
+      const dates = occurrences(sched, 8);
+      const next = dates.find(d => d >= today) || dates[dates.length-1];
+      return {when: next, label: sched.label, amount: sched.amount};
+    });
+    if(nextByShed.length){
+      nextByShed.sort((a,b)=> a.when - b.when);
+      const next = nextByShed[0];
+      const days = Math.round((next.when - today) / 86400000);
+      const whenText = days <= 0 ? 'today' : days === 1 ? 'in 1 day' : `in ${days} days`;
+      document.getElementById('nextPill').innerHTML = `
+        <div class="who">Next payment · ${next.label}</div>
+        <div class="amt">${fmt(next.amount)}</div>
+        <div class="when">${dayFmt(next.when)} — ${whenText}</div>`;
+    } else {
+      document.getElementById('nextPill').innerHTML = `<div class="who">No payment types yet</div>`;
+    }
+  }
+
   function renderSchedules(){
     const container = document.getElementById('schedBlocks');
     container.innerHTML = '';
     const today = new Date(); today.setHours(0,0,0,0);
-    const nextByShed = [];
 
     schedules.forEach(sched => {
       const block = document.createElement('div');
@@ -470,19 +499,8 @@
           <span>First payment</span>
           <input type="date" value="${sched.start_date}" data-id="${sched.id}" data-f="start_date">
         </div>
-        <div class="sched-list" data-id="${sched.id}"></div>`;
+        <div class="sched-list" data-id="${sched.id}">${occurrenceListHTML(sched, today)}</div>`;
       container.appendChild(block);
-
-      const dates = occurrences(sched, 8);
-      const list = block.querySelector('.sched-list');
-      list.innerHTML = dates.slice(0,6).map(d => {
-        const paid = d < today;
-        return `<div class="sched-item"><span>${dayFmt(d)}</span>
-          <span class="badge ${paid?'paid':'due'}">${paid?'Paid':'Due'}</span></div>`;
-      }).join('');
-
-      const next = dates.find(d => d >= today) || dates[dates.length-1];
-      nextByShed.push({when: next, label: sched.label, amount: sched.amount});
     });
 
     container.querySelectorAll('input').forEach(inp => {
@@ -491,7 +509,16 @@
         const sched = schedules.find(s => s.id === id);
         if(!sched) return;
         sched[f] = f === 'amount' ? (parseFloat(e.target.value) || 0) : e.target.value;
-        renderSchedules();
+
+        if(f === 'start_date'){
+          const listEl = container.querySelector(`.sched-list[data-id="${id}"]`);
+          if(listEl){
+            const todayNow = new Date(); todayNow.setHours(0,0,0,0);
+            listEl.innerHTML = occurrenceListHTML(sched, todayNow);
+          }
+        }
+        updateNextPill();
+
         clearTimeout(rowSaveTimers['sched_'+id]);
         rowSaveTimers['sched_'+id] = setTimeout(async () => {
           await sb.from('benefit_schedules').update({label: sched.label, amount: sched.amount, start_date: sched.start_date}).eq('id', id);
@@ -504,21 +531,11 @@
         await sb.from('benefit_schedules').delete().eq('id', id);
         schedules = schedules.filter(s => s.id !== id);
         renderSchedules();
+        updateNextPill();
       });
     });
 
-    if(nextByShed.length){
-      nextByShed.sort((a,b)=> a.when - b.when);
-      const next = nextByShed[0];
-      const days = Math.round((next.when - today) / 86400000);
-      const whenText = days <= 0 ? 'today' : days === 1 ? 'in 1 day' : `in ${days} days`;
-      document.getElementById('nextPill').innerHTML = `
-        <div class="who">Next payment · ${next.label}</div>
-        <div class="amt">${fmt(next.amount)}</div>
-        <div class="when">${dayFmt(next.when)} — ${whenText}</div>`;
-    } else {
-      document.getElementById('nextPill').innerHTML = `<div class="who">No payment types yet</div>`;
-    }
+    updateNextPill();
   }
 
   document.getElementById('addSchedule').addEventListener('click', async () => {
