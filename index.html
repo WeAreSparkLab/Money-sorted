@@ -24,9 +24,47 @@
     --positive-soft:#E3EFE8;
     --warning:#B9762A;
     --warning-soft:#F7E9D6;
+    --accent-bg:#1C2321;
+    --accent-bg-hover:#000000;
+    --accent-fg:#FFFFFF;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --paper:#15191A;
+      --panel:#1E2422;
+      --line:#333D38;
+      --ink:#EDF1ED;
+      --ink-soft:#93A39A;
+      --positive:#6BBE93;
+      --positive-soft:#1F332A;
+      --warning:#E3A25F;
+      --warning-soft:#3A2C18;
+      --accent-bg:#EDF1ED;
+      --accent-bg-hover:#FFFFFF;
+      --accent-fg:#1C2321;
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper:#15191A;
+    --panel:#1E2422;
+    --line:#333D38;
+    --ink:#EDF1ED;
+    --ink-soft:#93A39A;
+    --positive:#6BBE93;
+    --positive-soft:#1F332A;
+    --warning:#E3A25F;
+    --warning-soft:#3A2C18;
+    --accent-bg:#EDF1ED;
+    --accent-bg-hover:#FFFFFF;
+    --accent-fg:#1C2321;
   }
   *{box-sizing:border-box;}
-  body{margin:0;background:var(--paper);color:var(--ink);font-family:'IBM Plex Sans', sans-serif;-webkit-font-smoothing:antialiased;}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:'IBM Plex Sans', sans-serif;-webkit-font-smoothing:antialiased;transition:background-color 0.2s ease, color 0.2s ease;}
+  .panel{transition:background-color 0.2s ease, border-color 0.2s ease;}
+  .theme-toggle{position:fixed;top:14px;right:14px;width:36px;height:36px;border-radius:50%;
+    background:var(--panel);border:1px solid var(--line);color:var(--ink);cursor:pointer;
+    font-size:1rem;display:flex;align-items:center;justify-content:center;z-index:10;padding:0;}
+  .theme-toggle:hover{border-color:var(--ink-soft);}
   .wrap{max-width:1040px;margin:0 auto;padding:36px 20px 72px;}
   header{margin-bottom:26px;display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;}
   h1{font-family:'Fraunces', serif;font-weight:600;font-size:2rem;margin:0 0 6px;letter-spacing:-0.01em;}
@@ -69,7 +107,7 @@
   .card-balance{font-family:'Fraunces', serif;font-size:2.1rem;font-weight:600;color:var(--warning);
     transition:background-color 0.7s ease;border-radius:5px;}
   .card-balance-label{color:var(--ink-soft);font-size:0.82rem;margin-bottom:2px;}
-  .next-pill{background:var(--ink);color:#fff;border-radius:6px;padding:12px 16px;margin-bottom:16px;}
+  .next-pill{background:var(--accent-bg);color:var(--accent-fg);border-radius:6px;padding:12px 16px;margin-bottom:16px;}
   .next-pill .who{font-size:0.78rem;opacity:0.75;margin-bottom:2px;}
   .next-pill .amt{font-family:'Fraunces', serif;font-size:1.3rem;font-weight:600;}
   .next-pill .when{font-size:0.82rem;opacity:0.85;margin-top:2px;}
@@ -105,9 +143,9 @@
   .auth-input{border:1px solid var(--line);padding:10px 12px;border-radius:5px;width:100%;
     font-family:'IBM Plex Sans', sans-serif;font-size:0.92rem;margin-bottom:10px;color:var(--ink);}
   .auth-input:focus-visible{outline:2px solid var(--positive);outline-offset:1px;}
-  .btn-primary{background:var(--ink);color:#fff;border:none;padding:11px 16px;border-radius:5px;
+  .btn-primary{background:var(--accent-bg);color:var(--accent-fg);border:none;padding:11px 16px;border-radius:5px;
     cursor:pointer;font-family:inherit;font-size:0.92rem;width:100%;margin-top:4px;}
-  .btn-primary:hover{background:#000;}
+  .btn-primary:hover{background:var(--accent-bg-hover);}
   .btn-primary:disabled{opacity:0.5;cursor:default;}
   .auth-toggle{margin-top:16px;font-size:0.85rem;color:var(--ink-soft);text-align:center;}
   .auth-toggle button{background:none;border:none;color:var(--positive);cursor:pointer;font-size:0.85rem;
@@ -120,6 +158,7 @@
 </style>
 </head>
 <body>
+<button class="theme-toggle" id="themeToggle" title="Toggle dark mode" aria-label="Toggle dark mode">🌙</button>
 <div class="wrap">
 
   <div id="authScreen" class="auth-box hidden">
@@ -216,6 +255,33 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 (function(){
+  // ---------- theme ----------
+  function getStoredTheme(){
+    try{ return localStorage.getItem('theme'); } catch(e){ return null; }
+  }
+  function isDarkActive(){
+    const stored = getStoredTheme();
+    if(stored === 'dark') return true;
+    if(stored === 'light') return false;
+    return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  }
+  function applyTheme(){
+    const stored = getStoredTheme();
+    if(stored === 'dark' || stored === 'light'){
+      document.documentElement.setAttribute('data-theme', stored);
+    } else {
+      document.documentElement.removeAttribute('data-theme');
+    }
+    const btn = document.getElementById('themeToggle');
+    if(btn) btn.textContent = isDarkActive() ? '☀️' : '🌙';
+  }
+  applyTheme();
+  document.getElementById('themeToggle').addEventListener('click', () => {
+    const next = isDarkActive() ? 'light' : 'dark';
+    try{ localStorage.setItem('theme', next); } catch(e){}
+    applyTheme();
+  });
+
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
       navigator.serviceWorker.register('/sw.js').catch(() => {});
@@ -609,12 +675,21 @@
   }
 
   // ---------- boot ----------
+  let currentUserId = null;
+
   sb.auth.getSession().then(({data}) => {
     session = data.session;
+    currentUserId = uid();
     if(session){ loadAllData(); } else { showAuth(); }
   });
 
   sb.auth.onAuthStateChange((event, s) => {
+    const newUserId = s && s.user && s.user.id;
+    // Supabase re-fires this on things like tab focus / token refresh, not just
+    // real login/logout. Only reload (and rebuild the input DOM) when the
+    // signed-in user actually changes, otherwise typing loses focus mid-word.
+    if(newUserId === currentUserId) return;
+    currentUserId = newUserId;
     session = s;
     if(s){ loadAllData(); } else { showAuth(); }
   });
