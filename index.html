@@ -218,9 +218,10 @@
 
           <div class="totals">
             <div class="income-row">
-              <span>Income this month</span>
+              <span>Other income</span>
               <input type="number" id="incomeInput" value="0" step="1">
             </div>
+            <div class="line" id="scheduleIncomeLine">From payment dates — £0.00</div>
             <div class="line big" id="totalOutLine">Total outgoing — £0.00</div>
             <div class="line big" id="remainingLine">Left over — £0.00</div>
             <div class="line" id="weeklyLine">≈ £0.00 a week</div>
@@ -514,11 +515,15 @@
 
   function recalcOutgoings(){
     const total = outgoings.reduce((s,r)=>s+(r.amount||0), 0);
-    const remaining = income - total;
+    const scheduleIncome = schedules.reduce((s,r)=>s+(r.amount||0), 0);
+    const totalIncome = income + scheduleIncome;
+    const remaining = totalIncome - total;
     const weekly = remaining / 4.33;
+    const schedEl = document.getElementById('scheduleIncomeLine');
     const totalEl = document.getElementById('totalOutLine');
     const remEl = document.getElementById('remainingLine');
     const wkEl = document.getElementById('weeklyLine');
+    schedEl.textContent = 'From payment dates — ' + fmt(scheduleIncome);
     totalEl.textContent = 'Total outgoing — ' + fmt(total);
     remEl.textContent = 'Left over — ' + fmt(remaining);
     wkEl.textContent = '≈ ' + fmt(weekly) + ' a week';
@@ -617,6 +622,7 @@
           }
         }
         updateNextPill();
+        recalcOutgoings();
 
         clearTimeout(rowSaveTimers['sched_'+id]);
         rowSaveTimers['sched_'+id] = setTimeout(async () => {
@@ -630,7 +636,7 @@
         await sb.from('benefit_schedules').delete().eq('id', id);
         schedules = schedules.filter(s => s.id !== id);
         renderSchedules();
-        updateNextPill();
+        recalcOutgoings();
       });
     });
 
@@ -644,6 +650,7 @@
     if(error){ console.error(error); return; }
     schedules.push(data);
     renderSchedules();
+    recalcOutgoings();
   });
 
   // ---------- load everything after login ----------
@@ -698,6 +705,7 @@
     }
     schedules = sc;
     renderSchedules();
+    recalcOutgoings();
 
     const now = new Date();
     document.getElementById('todaySub').textContent =
