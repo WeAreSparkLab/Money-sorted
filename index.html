@@ -110,6 +110,8 @@
   .flash{background-color:var(--positive-soft);}
   .income-row{display:flex;justify-content:space-between;align-items:center;margin:2px 0 4px;font-size:0.92rem;}
   .income-row input{max-width:110px;}
+  .sched-toggle{display:flex;align-items:center;gap:6px;cursor:pointer;color:var(--ink-soft);}
+  .sched-toggle input[type=checkbox]{width:16px;height:16px;accent-color:var(--positive);cursor:pointer;}
   .card-balance{font-family:'Fraunces', serif;font-size:2.1rem;font-weight:600;color:var(--warning);
     transition:background-color 0.7s ease;border-radius:5px;}
   .card-balance-label{color:var(--ink-soft);font-size:0.82rem;margin-bottom:2px;}
@@ -232,7 +234,13 @@
               <span>Other income</span>
               <input type="number" id="incomeInput" value="0" step="1">
             </div>
-            <div class="line" id="scheduleIncomeLine">From payment dates — £0.00</div>
+            <div class="income-row">
+              <label class="sched-toggle">
+                <input type="checkbox" id="includeScheduleIncome" checked>
+                <span>Include payment dates</span>
+              </label>
+              <span id="scheduleIncomeAmount">£0.00</span>
+            </div>
             <div class="line big" id="totalOutLine">Total outgoing — £0.00</div>
             <div class="line big" id="remainingLine">Left over — £0.00</div>
             <div class="line" id="weeklyLine">≈ £0.00 a week</div>
@@ -333,6 +341,7 @@
   let cardItems = [];
   let schedules = [];
   let income = 0;
+  let includeScheduleIncome = true;
   let firstRender = true;
   let isSignUpMode = false;
   const rowSaveTimers = {};
@@ -519,16 +528,15 @@
 
   function recalcOutgoings(){
     const total = outgoings.reduce((s,r)=>s+(r.amount||0), 0);
-    // DLA/Child Benefit-style payments are shown for reference but deliberately
-    // left out of Left over — that money's earmarked, not general disposable income.
     const scheduleIncome = schedules.reduce((s,r)=>s+(r.amount||0), 0);
-    const remaining = income - total;
+    const totalIncome = income + (includeScheduleIncome ? scheduleIncome : 0);
+    const remaining = totalIncome - total;
     const weekly = remaining / 4.33;
-    const schedEl = document.getElementById('scheduleIncomeLine');
+    const schedAmtEl = document.getElementById('scheduleIncomeAmount');
     const totalEl = document.getElementById('totalOutLine');
     const remEl = document.getElementById('remainingLine');
     const wkEl = document.getElementById('weeklyLine');
-    schedEl.textContent = 'From payment dates (not counted below) — ' + fmt(scheduleIncome);
+    if(schedAmtEl) schedAmtEl.textContent = fmt(scheduleIncome);
     totalEl.textContent = 'Total outgoing — ' + fmt(total);
     remEl.textContent = 'Left over — ' + fmt(remaining);
     wkEl.textContent = '≈ ' + fmt(weekly) + ' a week';
@@ -655,6 +663,11 @@
     income = parseFloat(e.target.value) || 0;
     recalcOutgoings();
     saveIncomeDebounced();
+  });
+  document.getElementById('includeScheduleIncome').addEventListener('change', async (e) => {
+    includeScheduleIncome = e.target.checked;
+    recalcOutgoings();
+    await sb.from('settings').update({include_schedule_income: includeScheduleIncome}).eq('user_id', uid());
   });
 
   // ---------- outgoing due dates ----------
@@ -816,10 +829,13 @@
     if(!settingsRows || settingsRows.length === 0){
       await sb.from('settings').insert({monthly_income: 0});
       income = 0;
+      includeScheduleIncome = true;
     } else {
       income = Number(settingsRows[0].monthly_income) || 0;
+      includeScheduleIncome = settingsRows[0].include_schedule_income !== false;
     }
     document.getElementById('incomeInput').value = income;
+    document.getElementById('includeScheduleIncome').checked = includeScheduleIncome;
 
     const monthKey = currentMonthKey();
     let {data: og} = await sb.from('outgoings').select('*').eq('month', monthKey).order('created_at');
