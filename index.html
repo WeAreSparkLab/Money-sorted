@@ -86,6 +86,8 @@
   th{text-align:left;color:var(--ink-soft);font-weight:500;font-size:0.8rem;border-bottom:1px solid var(--line);padding:0 4px 8px;}
   th.amount, td.amount{text-align:right;}
   th.recur, td.recur{text-align:center;width:78px;}
+  th.date, td.date{text-align:center;width:60px;}
+  td.date input{text-align:center;}
   td.recur input[type=checkbox]{width:16px;height:16px;accent-color:var(--positive);cursor:pointer;}
   td{padding:5px 4px;border-bottom:1px solid var(--line);font-size:0.92rem;}
   tr:last-child td{border-bottom:none;}
@@ -199,14 +201,15 @@
       <!-- LEFT COLUMN -->
       <div class="stack">
         <div class="panel">
+          <div class="next-pill" id="outgoingNextPill"></div>
           <h2>Outgoings</h2>
           <p class="hint">This month's regular spends — rent, direct debits, the food shop.</p>
           <table>
-            <thead><tr><th>Item</th><th class="amount">Amount</th><th class="recur">Recurring</th><th class="rm"></th></tr></thead>
+            <thead><tr><th>Item</th><th class="amount">Amount</th><th class="date">Date</th><th class="recur">Recurring</th><th class="rm"></th></tr></thead>
             <tbody id="outgoingsBody"></tbody>
           </table>
           <button class="add-row" id="addOutgoing">+ Add an item</button>
-          <p class="hint" style="margin-top:8px;">Tick "Recurring" for bills that repeat monthly — they'll carry over automatically when the month changes, and you can still change the amount any time.</p>
+          <p class="hint" style="margin-top:8px;">Tick "Recurring" for bills that repeat monthly — they'll carry over automatically when the month changes, and you can still change the amount any time. Set the "Date" to the day of the month it goes out to see it in the summary above.</p>
 
           <div class="history-toggle">
             <button class="add-row" id="historyBtn">View past months</button>
@@ -422,6 +425,7 @@
       tr.innerHTML = `
         <td><input type="text" value="${row.name || ''}" data-id="${row.id}" data-f="name"></td>
         <td class="amount"><input type="number" step="1" value="${row.amount || 0}" data-id="${row.id}" data-f="amount"></td>
+        <td class="date"><input type="number" min="1" max="31" placeholder="Day" value="${row.due_day || ''}" data-id="${row.id}" data-f="due_day"></td>
         ${showRecurring ? `<td class="recur"><input type="checkbox" ${row.is_recurring ? 'checked' : ''} data-id="${row.id}" data-f="is_recurring"></td>` : ''}
         <td class="rm"><button title="Remove" data-id="${row.id}">✕</button></td>`;
       body.appendChild(tr);
@@ -433,11 +437,15 @@
         const row = list.find(r => r.id === id);
         if(!row) return;
         if(f === 'is_recurring'){ row[f] = e.target.checked; }
+        else if(f === 'due_day'){
+          const v = parseInt(e.target.value, 10);
+          row[f] = (v >= 1 && v <= 31) ? v : null;
+        }
         else { row[f] = f === 'amount' ? (parseFloat(e.target.value) || 0) : e.target.value; }
         recalcFn();
         clearTimeout(rowSaveTimers[id]);
         rowSaveTimers[id] = setTimeout(async () => {
-          const patch = {name: row.name, amount: row.amount};
+          const patch = {name: row.name, amount: row.amount, due_day: row.due_day};
           if(showRecurring) patch.is_recurring = row.is_recurring;
           await sb.from(table).update(patch).eq('id', id);
         }, f === 'is_recurring' ? 0 : 600);
@@ -511,19 +519,21 @@
 
   function recalcOutgoings(){
     const total = outgoings.reduce((s,r)=>s+(r.amount||0), 0);
+    // DLA/Child Benefit-style payments are shown for reference but deliberately
+    // left out of Left over — that money's earmarked, not general disposable income.
     const scheduleIncome = schedules.reduce((s,r)=>s+(r.amount||0), 0);
-    const totalIncome = income + scheduleIncome;
-    const remaining = totalIncome - total;
+    const remaining = income - total;
     const weekly = remaining / 4.33;
     const schedEl = document.getElementById('scheduleIncomeLine');
     const totalEl = document.getElementById('totalOutLine');
     const remEl = document.getElementById('remainingLine');
     const wkEl = document.getElementById('weeklyLine');
-    schedEl.textContent = 'From payment dates — ' + fmt(scheduleIncome);
+    schedEl.textContent = 'From payment dates (not counted below) — ' + fmt(scheduleIncome);
     totalEl.textContent = 'Total outgoing — ' + fmt(total);
     remEl.textContent = 'Left over — ' + fmt(remaining);
     wkEl.textContent = '≈ ' + fmt(weekly) + ' a week';
     flash(totalEl); flash(remEl);
+    updateOutgoingNextPill();
   }
   // ---------- credit cards ----------
   function cardItemsFor(cardId){
@@ -647,30 +657,75 @@
     saveIncomeDebounced();
   });
 
+  // ---------- outgoing due dates ----------
+  function nextDueDateForDay(day, today){
+    let candidate = new Date(today.getFullYear(), today.getMonth(), day);
+    if(candidate < today) candidate = new Date(today.getFullYear(), today.getMonth()+1, day);
+    return candidate;
+  }
+  function updateOutgoingNextPill(){
+    const pillEl = document.getElementById('outgoingNextPill');
+    if(!pillEl) return;
+    const today = new Date(); today.setHours(0,0,0,0);
+    const withDates = outgoings
+      .filter(r => r.due_day >= 1 && r.due_day <= 31)
+      .map(r => ({row: r, when: nextDueDateForDay(r.due_day, today)}))
+      .sort((a,b) => a.when - b.when);
+    if(withDates.length === 0){
+      pillEl.innerHTML = `<div class="who">No outgoing dates set yet</div>`;
+      return;
+    }
+    const next = withDates[0];
+    const days = Math.round((next.when - today) / 86400000);
+    const whenText = days <= 0 ? 'today' : days === 1 ? 'in 1 day' : `in ${days} days`;
+    pillEl.innerHTML = `
+      <div class="who">Next payment · ${next.row.name || '(untitled)'}</div>
+      <div class="amt">${fmt(next.row.amount)}</div>
+      <div class="when">${dayFmt(next.when)} — ${whenText}</div>`;
+  }
+
   // ---------- payment schedules ----------
-  function occurrences(sched, count){
-    const out = [];
+  // Find the first occurrence on/after `from`, fast-forwarding past any
+  // number of missed cycles instead of generating a fixed count from
+  // start_date (which could fall short if start_date is old).
+  function nextOccurrenceOnOrAfter(sched, from){
+    const interval = Math.max(1, parseInt(sched.interval_days, 10) || 28);
     let d = new Date(sched.start_date + 'T00:00:00');
-    for(let i=0;i<count;i++){ out.push(new Date(d)); d = new Date(d.getTime() + (sched.interval_days||28)*86400000); }
+    if(d < from){
+      const missed = Math.floor((from - d) / (interval * 86400000));
+      d = new Date(d.getTime() + missed * interval * 86400000);
+    }
+    while(d < from){ d = new Date(d.getTime() + interval*86400000); }
+    return d;
+  }
+  function upcomingOccurrences(sched, monthsAhead){
+    const today = new Date(); today.setHours(0,0,0,0);
+    const interval = Math.max(1, parseInt(sched.interval_days, 10) || 28);
+    const cutoff = new Date(today.getFullYear(), today.getMonth()+monthsAhead, today.getDate());
+    const out = [];
+    let d = nextOccurrenceOnOrAfter(sched, today);
+    let guard = 0;
+    while(d <= cutoff && guard < 200){
+      out.push(new Date(d));
+      d = new Date(d.getTime() + interval*86400000);
+      guard++;
+    }
+    if(out.length === 0) out.push(d);
     return out;
   }
 
-  function occurrenceListHTML(sched, today){
-    const dates = occurrences(sched, 8);
-    return dates.slice(0,6).map(d => {
-      const paid = d < today;
-      return `<div class="sched-item"><span>${dayFmt(d)}</span>
-        <span class="badge ${paid?'paid':'due'}">${paid?'Paid':'Due'}</span></div>`;
-    }).join('');
+  function occurrenceListHTML(sched){
+    return upcomingOccurrences(sched, 3).map(d =>
+      `<div class="sched-item"><span>${dayFmt(d)}</span>
+        <span class="badge due">Due</span></div>`
+    ).join('');
   }
 
   function updateNextPill(){
     const today = new Date(); today.setHours(0,0,0,0);
-    const nextByShed = schedules.map(sched => {
-      const dates = occurrences(sched, 8);
-      const next = dates.find(d => d >= today) || dates[dates.length-1];
-      return {when: next, label: sched.label, amount: sched.amount};
-    });
+    const nextByShed = schedules.map(sched => ({
+      when: nextOccurrenceOnOrAfter(sched, today), label: sched.label, amount: sched.amount
+    }));
     if(nextByShed.length){
       nextByShed.sort((a,b)=> a.when - b.when);
       const next = nextByShed[0];
@@ -688,7 +743,6 @@
   function renderSchedules(){
     const container = document.getElementById('schedBlocks');
     container.innerHTML = '';
-    const today = new Date(); today.setHours(0,0,0,0);
 
     schedules.forEach(sched => {
       const block = document.createElement('div');
@@ -705,7 +759,7 @@
           <span>First payment</span>
           <input type="date" value="${sched.start_date}" data-id="${sched.id}" data-f="start_date">
         </div>
-        <div class="sched-list" data-id="${sched.id}">${occurrenceListHTML(sched, today)}</div>`;
+        <div class="sched-list" data-id="${sched.id}">${occurrenceListHTML(sched)}</div>`;
       container.appendChild(block);
     });
 
@@ -718,10 +772,7 @@
 
         if(f === 'start_date'){
           const listEl = container.querySelector(`.sched-list[data-id="${id}"]`);
-          if(listEl){
-            const todayNow = new Date(); todayNow.setHours(0,0,0,0);
-            listEl.innerHTML = occurrenceListHTML(sched, todayNow);
-          }
+          if(listEl) listEl.innerHTML = occurrenceListHTML(sched);
         }
         updateNextPill();
         recalcOutgoings();
@@ -781,7 +832,7 @@
         const latestByName = {};
         recurring.forEach(r => { if(!(r.name in latestByName)) latestByName[r.name] = r; });
         const toInsert = Object.values(latestByName).map(r => ({
-          name: r.name, amount: r.amount, is_recurring: true, month: monthKey
+          name: r.name, amount: r.amount, due_day: r.due_day, is_recurring: true, month: monthKey
         }));
         const {data: inserted} = await sb.from('outgoings').insert(toInsert).select();
         og = inserted || [];
