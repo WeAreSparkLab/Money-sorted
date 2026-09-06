@@ -24,6 +24,7 @@
     --positive-soft:#E3EFE8;
     --warning:#B9762A;
     --warning-soft:#F7E9D6;
+    --danger:#B3392C;
     --accent-bg:#1C2321;
     --accent-bg-hover:#000000;
     --accent-fg:#FFFFFF;
@@ -39,6 +40,7 @@
       --positive-soft:#1F332A;
       --warning:#E3A25F;
       --warning-soft:#3A2C18;
+      --danger:#E2685A;
       --accent-bg:#EDF1ED;
       --accent-bg-hover:#FFFFFF;
       --accent-fg:#1C2321;
@@ -54,6 +56,7 @@
     --positive-soft:#1F332A;
     --warning:#E3A25F;
     --warning-soft:#3A2C18;
+    --danger:#E2685A;
     --accent-bg:#EDF1ED;
     --accent-bg-hover:#FFFFFF;
     --accent-fg:#1C2321;
@@ -106,7 +109,8 @@
   .totals{margin-top:14px;border-top:1px solid var(--line);padding-top:12px;}
   .totals .line{display:flex;justify-content:space-between;padding:3px 0;font-size:0.92rem;color:var(--ink-soft);}
   .totals .line.big{font-family:'Fraunces', serif;font-size:1.5rem;font-weight:600;color:var(--ink);
-    padding-top:6px;transition:background-color 0.7s ease;border-radius:5px;}
+    padding-top:6px;transition:background-color 0.7s ease, color 0.2s ease;border-radius:5px;}
+  .totals .line.big.negative{color:var(--danger);}
   .flash{background-color:var(--positive-soft);}
   .income-row{display:flex;justify-content:space-between;align-items:center;margin:2px 0 4px;font-size:0.92rem;}
   .income-row input{max-width:110px;}
@@ -348,7 +352,9 @@
 
   // ---------- helpers ----------
   function fmt(n){
-    return '£' + (Math.round((n||0)*100)/100).toLocaleString('en-GB', {minimumFractionDigits:2, maximumFractionDigits:2});
+    const v = Math.round((n||0)*100)/100;
+    const sign = v < 0 ? '-' : '';
+    return sign + '£' + Math.abs(v).toLocaleString('en-GB', {minimumFractionDigits:2, maximumFractionDigits:2});
   }
   function flash(el){
     if(firstRender || !el) return;
@@ -539,6 +545,7 @@
     if(schedAmtEl) schedAmtEl.textContent = fmt(scheduleIncome);
     totalEl.textContent = 'Total outgoing — ' + fmt(total);
     remEl.textContent = 'Left over — ' + fmt(remaining);
+    remEl.classList.toggle('negative', remaining < 0);
     wkEl.textContent = '≈ ' + fmt(weekly) + ' a week';
     flash(totalEl); flash(remEl);
     updateOutgoingNextPill();
