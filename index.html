@@ -111,6 +111,14 @@
   .card-balance{font-family:'Fraunces', serif;font-size:2.1rem;font-weight:600;color:var(--warning);
     transition:background-color 0.7s ease;border-radius:5px;}
   .card-balance-label{color:var(--ink-soft);font-size:0.82rem;margin-bottom:2px;}
+  #cardsContainer{margin-top:20px;}
+  #cardsContainer > .panel + .panel{margin-top:20px;}
+  .card-panel-head{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px;}
+  .card-panel-head input[type=text]{font-family:'Fraunces', serif;font-size:1.1rem;font-weight:600;
+    color:var(--ink);border:none;background:transparent;padding:2px 3px;border-radius:3px;width:100%;}
+  .card-panel-head .rm-card{background:none;border:none;color:var(--ink-soft);cursor:pointer;
+    font-size:1rem;padding:4px;flex-shrink:0;}
+  .card-panel-head .rm-card:hover{color:var(--warning);}
   .next-pill{background:var(--accent-bg);color:var(--accent-fg);border-radius:6px;padding:12px 16px;margin-bottom:16px;}
   .next-pill .who{font-size:0.78rem;opacity:0.75;margin-bottom:2px;}
   .next-pill .amt{font-family:'Fraunces', serif;font-size:1.3rem;font-weight:600;}
@@ -239,19 +247,8 @@
           <button class="add-row" id="addSchedule">+ Add a payment type</button>
         </div>
 
-        <div class="panel">
-          <h2>Virgin credit card</h2>
-          <p class="hint">What's outstanding right now.</p>
-          <table>
-            <thead><tr><th>Item</th><th class="amount">Amount</th><th class="rm"></th></tr></thead>
-            <tbody id="cardBody"></tbody>
-          </table>
-          <button class="add-row" id="addCard">+ Add an item</button>
-          <div class="totals">
-            <div class="card-balance-label">Outstanding balance</div>
-            <div class="card-balance" id="cardTotal">£0.00</div>
-          </div>
-        </div>
+        <div id="cardsContainer"></div>
+        <button class="add-row" id="addCreditCard" style="margin-top:20px;">+ Add a card</button>
       </div>
     </div>
 
@@ -329,6 +326,7 @@
   // ---------- state ----------
   let session = null;
   let outgoings = [];
+  let creditCards = [];
   let cardItems = [];
   let schedules = [];
   let income = 0;
@@ -476,8 +474,6 @@
 
   document.getElementById('addOutgoing').addEventListener('click', () =>
     addLedgerRow(outgoings, 'outgoingsBody', 'outgoings', recalcOutgoings, {month: currentMonthKey(), is_recurring:false}, true));
-  document.getElementById('addCard').addEventListener('click', () =>
-    addLedgerRow(cardItems, 'cardBody', 'card_items', recalcCard, {}, false));
 
   // ---------- past months (read-only history) ----------
   let historyRows = null;
@@ -529,12 +525,118 @@
     wkEl.textContent = '≈ ' + fmt(weekly) + ' a week';
     flash(totalEl); flash(remEl);
   }
-  function recalcCard(){
-    const total = cardItems.reduce((s,r)=>s+(r.amount||0), 0);
-    const el = document.getElementById('cardTotal');
+  // ---------- credit cards ----------
+  function cardItemsFor(cardId){
+    return cardItems.filter(r => r.card_id === cardId);
+  }
+  function recalcCardTotal(cardId){
+    const total = cardItemsFor(cardId).reduce((s,r)=>s+(r.amount||0), 0);
+    const el = document.querySelector(`.card-balance[data-card-total="${cardId}"]`);
+    if(!el) return;
     el.textContent = fmt(total);
     flash(el);
   }
+  function renderCardItemsBody(card){
+    const body = document.querySelector(`tbody[data-card-body="${card.id}"]`);
+    if(!body) return;
+    body.innerHTML = '';
+    cardItemsFor(card.id).forEach(row => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><input type="text" value="${row.name || ''}" data-id="${row.id}" data-f="name"></td>
+        <td class="amount"><input type="number" step="1" value="${row.amount || 0}" data-id="${row.id}" data-f="amount"></td>
+        <td class="rm"><button title="Remove" data-id="${row.id}">✕</button></td>`;
+      body.appendChild(tr);
+    });
+    body.querySelectorAll('input').forEach(inp => {
+      inp.addEventListener('input', (e) => {
+        const id = e.target.dataset.id, f = e.target.dataset.f;
+        const row = cardItems.find(r => r.id === id);
+        if(!row) return;
+        row[f] = f === 'amount' ? (parseFloat(e.target.value) || 0) : e.target.value;
+        recalcCardTotal(card.id);
+        clearTimeout(rowSaveTimers[id]);
+        rowSaveTimers[id] = setTimeout(async () => {
+          await sb.from('card_items').update({name: row.name, amount: row.amount}).eq('id', id);
+        }, 600);
+      });
+    });
+    body.querySelectorAll('.rm button').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        const id = e.target.dataset.id;
+        await sb.from('card_items').delete().eq('id', id);
+        const idx = cardItems.findIndex(r => r.id === id);
+        if(idx > -1) cardItems.splice(idx, 1);
+        renderCardItemsBody(card);
+        recalcCardTotal(card.id);
+      });
+    });
+  }
+  async function addCardItem(cardId){
+    const {data, error} = await sb.from('card_items').insert({name:'', amount:0, card_id: cardId}).select().single();
+    if(error){ console.error(error); return; }
+    cardItems.push(data);
+    renderCardItemsBody({id: cardId});
+    recalcCardTotal(cardId);
+  }
+  function renderCreditCards(){
+    const container = document.getElementById('cardsContainer');
+    container.innerHTML = '';
+    creditCards.forEach(card => {
+      const panel = document.createElement('div');
+      panel.className = 'panel card-panel';
+      panel.innerHTML = `
+        <div class="card-panel-head">
+          <input type="text" class="card-name-input" value="${card.name || ''}" data-id="${card.id}">
+          <button class="rm-card" title="Remove card" data-id="${card.id}">✕</button>
+        </div>
+        <p class="hint">What's outstanding right now.</p>
+        <table>
+          <thead><tr><th>Item</th><th class="amount">Amount</th><th class="rm"></th></tr></thead>
+          <tbody data-card-body="${card.id}"></tbody>
+        </table>
+        <button class="add-row" data-add-item="${card.id}">+ Add an item</button>
+        <div class="totals">
+          <div class="card-balance-label">Outstanding balance</div>
+          <div class="card-balance" data-card-total="${card.id}">£0.00</div>
+        </div>`;
+      container.appendChild(panel);
+      renderCardItemsBody(card);
+      recalcCardTotal(card.id);
+    });
+
+    container.querySelectorAll('.card-name-input').forEach(inp => {
+      inp.addEventListener('input', (e) => {
+        const id = e.target.dataset.id;
+        const card = creditCards.find(c => c.id === id);
+        if(!card) return;
+        card.name = e.target.value;
+        clearTimeout(rowSaveTimers['card_'+id]);
+        rowSaveTimers['card_'+id] = setTimeout(async () => {
+          await sb.from('credit_cards').update({name: card.name}).eq('id', id);
+        }, 600);
+      });
+    });
+    container.querySelectorAll('.rm-card').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        const id = e.target.dataset.id;
+        if(!confirm('Remove this card and everything on it?')) return;
+        await sb.from('credit_cards').delete().eq('id', id);
+        creditCards = creditCards.filter(c => c.id !== id);
+        cardItems = cardItems.filter(r => r.card_id !== id);
+        renderCreditCards();
+      });
+    });
+    container.querySelectorAll('[data-add-item]').forEach(btn => {
+      btn.addEventListener('click', () => addCardItem(btn.dataset.addItem));
+    });
+  }
+  document.getElementById('addCreditCard').addEventListener('click', async () => {
+    const {data, error} = await sb.from('credit_cards').insert({name:'New card'}).select().single();
+    if(error){ console.error(error); return; }
+    creditCards.push(data);
+    renderCreditCards();
+  });
 
   const saveIncomeDebounced = debounce(async () => {
     await sb.from('settings').update({monthly_income: income, updated_at: new Date().toISOString()}).eq('user_id', uid());
@@ -689,10 +791,16 @@
     renderLedger(outgoings, 'outgoingsBody', 'outgoings', recalcOutgoings, true);
     recalcOutgoings();
 
+    let {data: cc} = await sb.from('credit_cards').select('*').order('created_at');
+    if(!cc || cc.length === 0){
+      const {data: inserted} = await sb.from('credit_cards').insert({name:'Virgin credit card'}).select();
+      cc = inserted || [];
+    }
+    creditCards = cc;
+
     const {data: ci} = await sb.from('card_items').select('*').order('created_at');
     cardItems = ci || [];
-    renderLedger(cardItems, 'cardBody', 'card_items', recalcCard, false);
-    recalcCard();
+    renderCreditCards();
 
     let {data: sc} = await sb.from('benefit_schedules').select('*').order('created_at');
     if(!sc || sc.length === 0){
