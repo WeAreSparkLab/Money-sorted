@@ -161,7 +161,8 @@
   .auth-box h1{font-size:1.7rem;margin-bottom:4px;}
   .auth-box p.sub{margin-bottom:22px;}
   .auth-input{border:1px solid var(--line);padding:10px 12px;border-radius:5px;width:100%;
-    font-family:'IBM Plex Sans', sans-serif;font-size:0.92rem;margin-bottom:10px;color:var(--ink);}
+    font-family:'IBM Plex Sans', sans-serif;font-size:0.92rem;margin-bottom:10px;color:var(--ink);background:var(--panel);}
+  .auth-input::placeholder{color:var(--ink-soft);opacity:1;}
   .auth-input:focus-visible{outline:2px solid var(--positive);outline-offset:1px;}
   .btn-primary{background:var(--accent-bg);color:var(--accent-fg);border:none;padding:11px 16px;border-radius:5px;
     cursor:pointer;font-family:inherit;font-size:0.92rem;width:100%;margin-top:4px;}
@@ -334,8 +335,8 @@
     deferredInstallPrompt = null;
   });
 
-  const SUPABASE_URL = 'https://jmaxpbpggxlkqpvsnozj.supabase.co';
-  const SUPABASE_KEY = 'sb_publishable_7Z7hvJhiFlIqdAMh_4GrnA_tZx9au2d';
+  const SUPABASE_URL = 'https://zckbrbqxnibzmuesqsok.supabase.co';
+  const SUPABASE_KEY = 'sb_publishable_-NEaU78G8mtqCRFc-9WEFg_aHA5OsIn';
   const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
   // ---------- state ----------
@@ -509,7 +510,7 @@
     historyPanel.classList.toggle('hidden');
     historyBtn.textContent = opening ? 'Hide past months' : 'View past months';
     if(opening && historyRows === null){
-      const {data} = await sb.from('outgoings').select('month,name,amount')
+      const {data} = await sb.schema('moneysorted').from('outgoings').select('month,name,amount')
         .neq('month', currentMonthKey()).order('month', {ascending:false});
       historyRows = data || [];
       const months = [...new Set(historyRows.map(r => r.month))].sort().reverse();
@@ -582,14 +583,14 @@
         recalcCardTotal(card.id);
         clearTimeout(rowSaveTimers[id]);
         rowSaveTimers[id] = setTimeout(async () => {
-          await sb.from('card_items').update({name: row.name, amount: row.amount}).eq('id', id);
+          await sb.schema('moneysorted').from('card_items').update({name: row.name, amount: row.amount}).eq('id', id);
         }, 600);
       });
     });
     body.querySelectorAll('.rm button').forEach(btn => {
       btn.addEventListener('click', async (e) => {
         const id = e.target.dataset.id;
-        await sb.from('card_items').delete().eq('id', id);
+        await sb.schema('moneysorted').from('card_items').delete().eq('id', id);
         const idx = cardItems.findIndex(r => r.id === id);
         if(idx > -1) cardItems.splice(idx, 1);
         renderCardItemsBody(card);
@@ -598,7 +599,7 @@
     });
   }
   async function addCardItem(cardId){
-    const {data, error} = await sb.from('card_items').insert({name:'', amount:0, card_id: cardId}).select().single();
+    const {data, error} = await sb.schema('moneysorted').from('card_items').insert({name:'', amount:0, card_id: cardId}).select().single();
     if(error){ console.error(error); return; }
     cardItems.push(data);
     renderCardItemsBody({id: cardId});
@@ -638,7 +639,7 @@
         card.name = e.target.value;
         clearTimeout(rowSaveTimers['card_'+id]);
         rowSaveTimers['card_'+id] = setTimeout(async () => {
-          await sb.from('credit_cards').update({name: card.name}).eq('id', id);
+          await sb.schema('moneysorted').from('credit_cards').update({name: card.name}).eq('id', id);
         }, 600);
       });
     });
@@ -646,7 +647,7 @@
       btn.addEventListener('click', async (e) => {
         const id = e.target.dataset.id;
         if(!confirm('Remove this card and everything on it?')) return;
-        await sb.from('credit_cards').delete().eq('id', id);
+        await sb.schema('moneysorted').from('credit_cards').delete().eq('id', id);
         creditCards = creditCards.filter(c => c.id !== id);
         cardItems = cardItems.filter(r => r.card_id !== id);
         renderCreditCards();
@@ -657,14 +658,14 @@
     });
   }
   document.getElementById('addCreditCard').addEventListener('click', async () => {
-    const {data, error} = await sb.from('credit_cards').insert({name:'New card'}).select().single();
+    const {data, error} = await sb.schema('moneysorted').from('credit_cards').insert({name:'New card'}).select().single();
     if(error){ console.error(error); return; }
     creditCards.push(data);
     renderCreditCards();
   });
 
   const saveIncomeDebounced = debounce(async () => {
-    await sb.from('settings').update({monthly_income: income, updated_at: new Date().toISOString()}).eq('user_id', uid());
+    await sb.schema('moneysorted').from('settings').update({monthly_income: income, updated_at: new Date().toISOString()}).eq('user_id', uid());
   }, 600);
   document.getElementById('incomeInput').addEventListener('input', (e) => {
     income = parseFloat(e.target.value) || 0;
@@ -674,7 +675,7 @@
   document.getElementById('includeScheduleIncome').addEventListener('change', async (e) => {
     includeScheduleIncome = e.target.checked;
     recalcOutgoings();
-    await sb.from('settings').update({include_schedule_income: includeScheduleIncome}).eq('user_id', uid());
+    await sb.schema('moneysorted').from('settings').update({include_schedule_income: includeScheduleIncome}).eq('user_id', uid());
   });
 
   // ---------- outgoing due dates ----------
@@ -799,14 +800,14 @@
 
         clearTimeout(rowSaveTimers['sched_'+id]);
         rowSaveTimers['sched_'+id] = setTimeout(async () => {
-          await sb.from('benefit_schedules').update({label: sched.label, amount: sched.amount, start_date: sched.start_date}).eq('id', id);
+          await sb.schema('moneysorted').from('benefit_schedules').update({label: sched.label, amount: sched.amount, start_date: sched.start_date}).eq('id', id);
         }, 600);
       });
     });
     container.querySelectorAll('.rm button').forEach(btn => {
       btn.addEventListener('click', async (e) => {
         const id = e.target.dataset.id;
-        await sb.from('benefit_schedules').delete().eq('id', id);
+        await sb.schema('moneysorted').from('benefit_schedules').delete().eq('id', id);
         schedules = schedules.filter(s => s.id !== id);
         renderSchedules();
         recalcOutgoings();
@@ -818,7 +819,7 @@
 
   document.getElementById('addSchedule').addEventListener('click', async () => {
     const todayISO = new Date().toISOString().slice(0,10);
-    const {data, error} = await sb.from('benefit_schedules')
+    const {data, error} = await sb.schema('moneysorted').from('benefit_schedules')
       .insert({label:'New payment', start_date: todayISO, amount:0, interval_days:28}).select().single();
     if(error){ console.error(error); return; }
     schedules.push(data);
@@ -832,9 +833,9 @@
     const userId = uid();
     document.getElementById('accountEmail').textContent = session.user.email;
 
-    let {data: settingsRows} = await sb.from('settings').select('*').eq('user_id', userId);
+    let {data: settingsRows} = await sb.schema('moneysorted').from('settings').select('*').eq('user_id', userId);
     if(!settingsRows || settingsRows.length === 0){
-      await sb.from('settings').insert({monthly_income: 0});
+      await sb.schema('moneysorted').from('settings').insert({monthly_income: 0});
       income = 0;
       includeScheduleIncome = true;
     } else {
@@ -845,19 +846,19 @@
     document.getElementById('includeScheduleIncome').checked = includeScheduleIncome;
 
     const monthKey = currentMonthKey();
-    let {data: og} = await sb.from('outgoings').select('*').eq('month', monthKey).order('created_at');
+    let {data: og} = await sb.schema('moneysorted').from('outgoings').select('*').eq('month', monthKey).order('created_at');
     og = og || [];
 
     if(og.length === 0){
       // no rows yet for this month — carry forward the latest amount for each recurring item
-      const {data: recurring} = await sb.from('outgoings').select('*').eq('is_recurring', true).order('month', {ascending:false});
+      const {data: recurring} = await sb.schema('moneysorted').from('outgoings').select('*').eq('is_recurring', true).order('month', {ascending:false});
       if(recurring && recurring.length){
         const latestByName = {};
         recurring.forEach(r => { if(!(r.name in latestByName)) latestByName[r.name] = r; });
         const toInsert = Object.values(latestByName).map(r => ({
           name: r.name, amount: r.amount, due_day: r.due_day, is_recurring: true, month: monthKey
         }));
-        const {data: inserted} = await sb.from('outgoings').insert(toInsert).select();
+        const {data: inserted} = await sb.schema('moneysorted').from('outgoings').insert(toInsert).select();
         og = inserted || [];
       }
     }
@@ -865,21 +866,21 @@
     renderLedger(outgoings, 'outgoingsBody', 'outgoings', recalcOutgoings, true);
     recalcOutgoings();
 
-    let {data: cc} = await sb.from('credit_cards').select('*').order('created_at');
+    let {data: cc} = await sb.schema('moneysorted').from('credit_cards').select('*').order('created_at');
     if(!cc || cc.length === 0){
-      const {data: inserted} = await sb.from('credit_cards').insert({name:'Virgin credit card'}).select();
+      const {data: inserted} = await sb.schema('moneysorted').from('credit_cards').insert({name:'Virgin credit card'}).select();
       cc = inserted || [];
     }
     creditCards = cc;
 
-    const {data: ci} = await sb.from('card_items').select('*').order('created_at');
+    const {data: ci} = await sb.schema('moneysorted').from('card_items').select('*').order('created_at');
     cardItems = ci || [];
     renderCreditCards();
 
-    let {data: sc} = await sb.from('benefit_schedules').select('*').order('created_at');
+    let {data: sc} = await sb.schema('moneysorted').from('benefit_schedules').select('*').order('created_at');
     if(!sc || sc.length === 0){
       const todayISO = new Date().toISOString().slice(0,10);
-      const {data: inserted} = await sb.from('benefit_schedules').insert([
+      const {data: inserted} = await sb.schema('moneysorted').from('benefit_schedules').insert([
         {label:'DLA', start_date: todayISO, amount:0, interval_days:28},
         {label:'Child Benefit', start_date: todayISO, amount:0, interval_days:28}
       ]).select();
