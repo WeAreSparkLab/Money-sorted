@@ -364,6 +364,9 @@
   }
   function debounce(fn, ms){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); }; }
   function dayFmt(d){ return d.toLocaleDateString('en-GB', {day:'numeric', month:'long'}); }
+  function localDateISO(d){
+    return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+  }
   function uid(){ return session && session.user && session.user.id; }
   function escapeHtml(value){
     return String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -749,6 +752,7 @@
     return d;
   }
   function upcomingOccurrences(sched, monthsAhead){
+    if(!sched.start_date) return [];
     const today = new Date(); today.setHours(0,0,0,0);
     const interval = Math.max(1, parseInt(sched.interval_days, 10) || 28);
     const cutoff = new Date(today.getFullYear(), today.getMonth()+monthsAhead, today.getDate());
@@ -765,16 +769,20 @@
   }
 
   function occurrenceListHTML(sched){
-    return upcomingOccurrences(sched, 3).map(d =>
+    if(!sched.start_date) return '<div class="sched-item">Choose a first payment date</div>';
+    const today = localDateISO(new Date());
+    return upcomingOccurrences(sched, 3).slice(0, 2).map(d =>
       `<div class="sched-item"><span>${dayFmt(d)}</span>
-        <span class="badge due">Due</span></div>`
+        <span class="badge due">${sched.start_date === today && localDateISO(d) === today ? 'Paid' : 'Due'}</span></div>`
     ).join('');
   }
 
   function updateNextPill(){
     const today = new Date(); today.setHours(0,0,0,0);
-    const nextByShed = schedules.map(sched => ({
-      when: nextOccurrenceOnOrAfter(sched, today), label: sched.label, amount: sched.amount
+    const tomorrow = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+    const nextByShed = schedules.filter(sched => sched.start_date).map(sched => ({
+      when: nextOccurrenceOnOrAfter(sched, sched.start_date === localDateISO(today) ? tomorrow : today),
+      label: sched.label, amount: sched.amount
     }));
     if(nextByShed.length){
       nextByShed.sort((a,b)=> a.when - b.when);
@@ -807,7 +815,7 @@
         </div>
         <div class="sched-controls">
           <span>First payment</span>
-          <input type="date" value="${sched.start_date}" data-id="${sched.id}" data-f="start_date">
+          <input type="date" value="${sched.start_date || ''}" data-id="${sched.id}" data-f="start_date">
         </div>
         <div class="sched-list" data-id="${sched.id}">${occurrenceListHTML(sched)}</div>`;
       container.appendChild(block);
@@ -818,7 +826,8 @@
         const id = e.target.dataset.id, f = e.target.dataset.f;
         const sched = schedules.find(s => s.id === id);
         if(!sched) return;
-        sched[f] = f === 'amount' ? (parseFloat(e.target.value) || 0) : e.target.value;
+        sched[f] = f === 'amount' ? (parseFloat(e.target.value) || 0) :
+          f === 'start_date' ? (e.target.value || null) : e.target.value;
 
         if(f === 'start_date'){
           const listEl = container.querySelector(`.sched-list[data-id="${id}"]`);
@@ -849,9 +858,8 @@
   }
 
   document.getElementById('addSchedule').addEventListener('click', async () => {
-    const todayISO = new Date().toISOString().slice(0,10);
     const {data, error} = await sb.schema('moneysorted').from('benefit_schedules')
-      .insert({label:'New payment', start_date: todayISO, amount:0, interval_days:28}).select().single();
+      .insert({label:'New payment', start_date: null, amount:0, interval_days:28}).select().single();
     if(error){ showDataError(error); return; }
     schedules.push(data);
     renderSchedules();
@@ -909,14 +917,6 @@
     renderCreditCards();
 
     let sc = requireData(await sb.schema('moneysorted').from('benefit_schedules').select('*').order('created_at'));
-    if(!sc || sc.length === 0){
-      const todayISO = new Date().toISOString().slice(0,10);
-      const inserted = requireData(await sb.schema('moneysorted').from('benefit_schedules').insert([
-        {label:'DLA', start_date: todayISO, amount:0, interval_days:28},
-        {label:'Child Benefit', start_date: todayISO, amount:0, interval_days:28}
-      ]).select());
-      sc = inserted || [];
-    }
     schedules = sc;
     renderSchedules();
     recalcOutgoings();
