@@ -242,10 +242,12 @@
             <div class="income-row">
               <label class="sched-toggle">
                 <input type="checkbox" id="includeScheduleIncome" checked>
-                <span>Include payment dates</span>
+                <span>Include payment income</span>
               </label>
               <span id="scheduleIncomeAmount">£0.00</span>
             </div>
+            <p class="hint" id="scheduleIncomeHint" aria-live="polite"></p>
+            <div class="line" id="incomeUsedLine">Income used — £0.00</div>
             <div class="line big" id="totalOutLine">Total outgoing — £0.00</div>
             <div class="line big" id="remainingLine">Left over — £0.00</div>
             <div class="line" id="weeklyLine">≈ £0.00 a week</div>
@@ -554,17 +556,40 @@
     totalLine.textContent = 'Total — ' + fmt(total);
   });
 
+  function paymentIncomeForMonth(rows, monthKey){
+    const [year, month] = monthKey.split('-').map(Number);
+    const from = Date.UTC(year, month - 1, 1);
+    const until = Date.UTC(year, month, 1);
+    return rows.reduce((sum, row) => {
+      if(!row.start_date) return sum;
+      const first = Date.parse(row.start_date + 'T00:00:00Z');
+      const interval = Number(row.interval_days);
+      const amount = Number(row.amount);
+      if(!Number.isFinite(first) || !Number.isInteger(interval) || interval < 1 || !Number.isFinite(amount)) return sum;
+      const period = interval * 86400000;
+      let when = first + Math.max(0, Math.ceil((from - first) / period)) * period;
+      while(when < until){ sum += amount; when += period; }
+      return sum;
+    }, 0);
+  }
   function recalcOutgoings(){
-    const total = outgoings.reduce((s,r)=>s+(r.amount||0), 0);
-    const scheduleIncome = schedules.reduce((s,r)=>s+(r.amount||0), 0);
+    const total = outgoings.reduce((s,r)=>s+(Number(r.amount)||0), 0);
+    const scheduleIncome = paymentIncomeForMonth(schedules, currentMonthKey());
     const totalIncome = income + (includeScheduleIncome ? scheduleIncome : 0);
     const remaining = totalIncome - total;
     const weekly = remaining / 4.33;
     const schedAmtEl = document.getElementById('scheduleIncomeAmount');
+    const incomeUsedEl = document.getElementById('incomeUsedLine');
+    const schedHintEl = document.getElementById('scheduleIncomeHint');
     const totalEl = document.getElementById('totalOutLine');
     const remEl = document.getElementById('remainingLine');
     const wkEl = document.getElementById('weeklyLine');
     if(schedAmtEl) schedAmtEl.textContent = fmt(scheduleIncome);
+    if(incomeUsedEl) incomeUsedEl.textContent = 'Income used — ' + fmt(totalIncome);
+    if(schedHintEl) schedHintEl.textContent = !includeScheduleIncome ?
+      'Payment income is excluded from the balance.' :
+      scheduleIncome === 0 ? 'No payment amount is scheduled this month. Enter an amount in Payment dates to include it.' :
+      'Includes payments scheduled this month.';
     totalEl.textContent = 'Total outgoing — ' + fmt(total);
     remEl.textContent = 'Left over — ' + fmt(remaining);
     remEl.classList.toggle('negative', remaining < 0);
@@ -773,7 +798,7 @@
     const today = localDateISO(new Date());
     return upcomingOccurrences(sched, 3).slice(0, 2).map(d =>
       `<div class="sched-item"><span>${dayFmt(d)}</span>
-        <span class="badge due">${sched.start_date === today && localDateISO(d) === today ? 'Paid' : 'Due'}</span></div>`
+        <span class="badge ${sched.start_date === today && localDateISO(d) === today ? 'paid' : 'due'}">${sched.start_date === today && localDateISO(d) === today ? 'Paid' : 'Due'}</span></div>`
     ).join('');
   }
 
