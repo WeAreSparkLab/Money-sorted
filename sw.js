@@ -1,4 +1,4 @@
-const CACHE = 'money-sorted-v2';
+const CACHE = 'money-sorted-v3';
 self.addEventListener('install', () => {
   self.skipWaiting();
 });
@@ -10,6 +10,10 @@ self.addEventListener('activate', (e) => {
   );
 });
 self.addEventListener('fetch', (e) => {
+  // Cache only same-origin static GETs. Financial API responses and writes must
+  // never be stored in a shared browser cache.
+  const url = new URL(e.request.url);
+  if (e.request.method !== 'GET' || url.origin !== self.location.origin) return;
   // Network-first: always serve the latest deploy, only falling back to the
   // cache when there's no connection (previous version cached-forever with
   // no way to see updates).
@@ -17,9 +21,10 @@ self.addEventListener('fetch', (e) => {
     fetch(e.request)
       .then((resp) => {
         const copy = resp.clone();
-        caches.open(CACHE).then((cache) => cache.put(e.request, copy));
+        if (resp.ok) e.waitUntil(caches.open(CACHE).then((cache) => cache.put(e.request, copy)));
         return resp;
       })
       .catch(() => caches.match(e.request))
   );
 });
+
