@@ -1192,7 +1192,29 @@
   // ---------- load everything after login ----------
   async function loadAllData(){
     firstRender = true;
+    app.classList.add('hidden');
+    loadingScreen.classList.remove('hidden');
+    outgoings = [];
+    creditCards = [];
+    cardItems = [];
+    schedules = [];
     receivedPayments = [];
+    income = 0;
+    pendingSaves.forEach(record => clearTimeout(record.timer));
+    pendingSaves.clear();
+    failedSaves.clear();
+    updateSaveStatus();
+    historyRows = null;
+    historyPanel.classList.add('hidden');
+    historyBtn.textContent = 'View past months';
+    historySelect.innerHTML = '<option value="">Choose a month…</option>';
+    document.getElementById('historyBody').innerHTML = '';
+    document.getElementById('historyTotalLine').textContent = 'Total — £0.00';
+    document.getElementById('outgoingsBody').innerHTML = '';
+    document.getElementById('cardsContainer').innerHTML = '';
+    document.getElementById('schedBlocks').innerHTML = '';
+    document.getElementById('nextPill').innerHTML = '';
+    document.getElementById('outgoingNextPill').innerHTML = '';
     const userId = uid();
     document.getElementById('accountEmail').textContent = session.user.email;
 
