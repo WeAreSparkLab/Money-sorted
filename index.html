@@ -400,6 +400,7 @@
 
   const SUPABASE_URL = 'https://zckbrbqxnibzmuesqsok.supabase.co';
   const SUPABASE_KEY = 'sb_publishable_-NEaU78G8mtqCRFc-9WEFg_aHA5OsIn';
+  let recoveryRedirect = /(?:^|[?#&])type=recovery(?:[&#]|$)/.test(window.location.href);
   const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
   // ---------- state ----------
@@ -414,7 +415,6 @@
   let firstRender = true;
   let isSignUpMode = false;
   let recoveryMode = false;
-  let recoveryRedirect = /(?:^|[?#&])type=recovery(?:[&#]|$)/.test(window.location.href);
   document.querySelectorAll('[data-password-toggle]').forEach(button => button.addEventListener('click', () => {
     const input = document.getElementById(button.dataset.passwordToggle);
     const visible = input.type === 'password';
