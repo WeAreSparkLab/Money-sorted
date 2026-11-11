@@ -573,9 +573,8 @@
   });
 
   function paymentIncomeForMonth(rows, monthKey){
-    const ownedScheduleIds = new Set(rows.map(row => row.id));
     return receivedPayments.reduce((sum, payment) => {
-      if(!ownedScheduleIds.has(payment.schedule_id) || !payment.received_on?.startsWith(monthKey.slice(0,7))) return sum;
+      if(!payment.received_on?.startsWith(monthKey.slice(0,7))) return sum;
       const amount = Number(payment.amount);
       return sum + (Number.isFinite(amount) ? amount : 0);
     }, 0);
@@ -961,6 +960,7 @@
   // ---------- load everything after login ----------
   async function loadAllData(){
     firstRender = true;
+    receivedPayments = [];
     const userId = uid();
     document.getElementById('accountEmail').textContent = session.user.email;
 
