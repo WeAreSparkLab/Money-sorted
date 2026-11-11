@@ -150,12 +150,18 @@
   .sched-head-row2 .rm button{font-size:0.9rem;}
   .sched-controls{display:flex;flex-direction:column;align-items:flex-start;gap:4px;font-size:0.8rem;color:var(--ink-soft);margin-bottom:8px;}
   .sched-controls input[type=date]{width:100%;}
+  .sched-controls select{width:100%;padding:7px 8px;border:1px solid var(--line);border-radius:5px;background:var(--panel);color:var(--ink);font:inherit;}
+  .sched-controls select:focus-visible{outline:2px solid var(--positive);outline-offset:1px;}
   .sched-item{display:flex;justify-content:space-between;align-items:center;padding:5px 0;
     border-bottom:1px solid var(--line);font-size:0.86rem;}
   .sched-item:last-child{border-bottom:none;}
   .badge{display:inline-block;padding:2px 9px;border-radius:10px;font-size:0.72rem;font-weight:500;}
   .badge.paid{background:var(--positive-soft);color:var(--positive);}
   .badge.due{background:var(--warning-soft);color:var(--warning);}
+  .badge.past{background:var(--line);color:var(--ink-soft);}
+  button.badge.paid-action{border:0;font-family:inherit;cursor:pointer;white-space:nowrap;}
+  button.badge.paid-action:focus-visible{outline:2px solid var(--positive);outline-offset:2px;}
+  button.badge.paid-action:disabled{opacity:.55;cursor:wait;}
   .note{margin-top:28px;font-size:0.82rem;color:var(--ink-soft);border-top:1px solid var(--line);
     padding-top:14px;line-height:1.6;}
   .history-panel{margin-top:14px;padding-top:14px;border-top:1px dashed var(--line);}
@@ -251,7 +257,7 @@
             <div class="income-row">
               <label class="sched-toggle">
                 <input type="checkbox" id="includeScheduleIncome" checked>
-                <span>Include payment income</span>
+                <span>Include received payments</span>
               </label>
               <span id="scheduleIncomeAmount">£0.00</span>
             </div>
@@ -269,7 +275,7 @@
         <div class="panel">
           <div class="next-pill" id="nextPill"></div>
           <h2>Payment dates</h2>
-          <p class="hint">Give it one real payment date, and it works out the rest of the year on its own.</p>
+          <p class="hint">Choose how often it arrives and enter the first date. For a specific date, choose One payment.</p>
           <div id="schedBlocks"></div>
           <button class="add-row" id="addSchedule">+ Add a payment type</button>
         </div>
@@ -356,6 +362,7 @@
   let creditCards = [];
   let cardItems = [];
   let schedules = [];
+  let receivedPayments = [];
   let income = 0;
   let includeScheduleIncome = true;
   let firstRender = true;
@@ -566,19 +573,10 @@
   });
 
   function paymentIncomeForMonth(rows, monthKey){
-    const [year, month] = monthKey.split('-').map(Number);
-    const from = Date.UTC(year, month - 1, 1);
-    const until = Date.UTC(year, month, 1);
-    return rows.reduce((sum, row) => {
-      if(!row.start_date) return sum;
-      const first = Date.parse(row.start_date + 'T00:00:00Z');
-      const interval = Number(row.interval_days);
-      const amount = Number(row.amount);
-      if(!Number.isFinite(first) || !Number.isInteger(interval) || interval < 1 || !Number.isFinite(amount)) return sum;
-      const period = interval * 86400000;
-      let when = first + Math.max(0, Math.ceil((from - first) / period)) * period;
-      while(when < until){ sum += amount; when += period; }
-      return sum;
+    return receivedPayments.reduce((sum, payment) => {
+      if(!payment.received_on?.startsWith(monthKey.slice(0,7))) return sum;
+      const amount = Number(payment.amount);
+      return sum + (Number.isFinite(amount) ? amount : 0);
     }, 0);
   }
   function recalcOutgoings(){
@@ -596,9 +594,9 @@
     if(schedAmtEl) schedAmtEl.textContent = fmt(scheduleIncome);
     if(incomeUsedEl) incomeUsedEl.textContent = 'Income used — ' + fmt(totalIncome);
     if(schedHintEl) schedHintEl.textContent = !includeScheduleIncome ?
-      'Payment income is excluded from the balance.' :
-      scheduleIncome === 0 ? 'No payment amount is scheduled this month. Enter an amount in Payment dates to include it.' :
-      'Includes payments scheduled this month.';
+      'Received payments are excluded from the balance.' :
+      scheduleIncome === 0 ? 'No payments marked paid this month.' :
+      'Includes payments marked paid this month.';
     totalEl.textContent = 'Total outgoing — ' + fmt(total);
     remEl.textContent = 'Left over — ' + fmt(remaining);
     remEl.classList.toggle('negative', remaining < 0);
@@ -772,52 +770,79 @@
   }
 
   // ---------- payment schedules ----------
-  // Find the first occurrence on/after `from`, fast-forwarding past any
-  // number of missed cycles instead of generating a fixed count from
-  // start_date (which could fall short if start_date is old).
-  function nextOccurrenceOnOrAfter(sched, from){
-    const interval = Math.max(1, parseInt(sched.interval_days, 10) || 28);
-    let d = new Date(sched.start_date + 'T00:00:00');
-    if(d < from){
-      const missed = Math.floor((from - d) / (interval * 86400000));
-      d = new Date(d.getTime() + missed * interval * 86400000);
-    }
-    while(d < from){ d = new Date(d.getTime() + interval*86400000); }
-    return d;
+  function scheduleFrequency(sched){
+    if(sched.frequency) return sched.frequency;
+    return ({7:'weekly',14:'fortnightly',28:'four_weekly'})[sched.interval_days] || 'four_weekly';
   }
-  function upcomingOccurrences(sched, monthsAhead){
+  function intervalForFrequency(frequency){
+    return ({weekly:7,fortnightly:14,four_weekly:28})[frequency] || null;
+  }
+  function monthlyDate(first, offset){
+    const monthStart = new Date(first.getFullYear(), first.getMonth() + offset, 1);
+    const lastDay = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0).getDate();
+    return new Date(monthStart.getFullYear(), monthStart.getMonth(), Math.min(first.getDate(), lastDay));
+  }
+  function nextOccurrenceOnOrAfter(sched, from){
+    if(!sched.start_date) return null;
+    const first = new Date(sched.start_date + 'T00:00:00');
+    if(!Number.isFinite(first.getTime())) return null;
+    const frequency = scheduleFrequency(sched);
+    if(frequency === 'once') return first >= from ? first : null;
+    if(frequency === 'monthly'){
+      let offset = Math.max(0, (from.getFullYear() - first.getFullYear()) * 12 + from.getMonth() - first.getMonth());
+      let candidate = monthlyDate(first, offset);
+      while(candidate < first || candidate < from) candidate = monthlyDate(first, ++offset);
+      return candidate;
+    }
+    const interval = intervalForFrequency(frequency) || 28;
+    const firstDay = Date.UTC(first.getFullYear(), first.getMonth(), first.getDate());
+    const fromDay = Date.UTC(from.getFullYear(), from.getMonth(), from.getDate());
+    const cycles = Math.max(0, Math.ceil((fromDay - firstDay) / (interval * 86400000)));
+    return new Date(first.getFullYear(), first.getMonth(), first.getDate() + cycles * interval);
+  }
+  function upcomingOccurrences(sched){
     if(!sched.start_date) return [];
     const today = new Date(); today.setHours(0,0,0,0);
-    const interval = Math.max(1, parseInt(sched.interval_days, 10) || 28);
-    const cutoff = new Date(today.getFullYear(), today.getMonth()+monthsAhead, today.getDate());
-    const out = [];
-    let d = nextOccurrenceOnOrAfter(sched, today);
-    let guard = 0;
-    while(d <= cutoff && guard < 200){
-      out.push(new Date(d));
-      d = new Date(d.getTime() + interval*86400000);
-      guard++;
+    const recentStart = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 35);
+    let previous = null;
+    let recent = nextOccurrenceOnOrAfter(sched, recentStart);
+    while(recent && recent < today){
+      previous = recent;
+      recent = nextOccurrenceOnOrAfter(sched, new Date(recent.getFullYear(), recent.getMonth(), recent.getDate() + 1));
     }
-    if(out.length === 0) out.push(d);
+    const out = previous ? [new Date(previous)] : [];
+    let d = nextOccurrenceOnOrAfter(sched, today);
+    while(d && out.length < 2){
+      out.push(new Date(d));
+      d = nextOccurrenceOnOrAfter(sched, new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1));
+    }
+    if(out.length === 0 && scheduleFrequency(sched) === 'once') out.push(new Date(sched.start_date + 'T00:00:00'));
     return out;
   }
 
   function occurrenceListHTML(sched){
-    if(!sched.start_date) return '<div class="sched-item">Choose a first payment date</div>';
-    const today = localDateISO(new Date());
-    return upcomingOccurrences(sched, 3).slice(0, 2).map(d =>
-      `<div class="sched-item"><span>${dayFmt(d)}</span>
-        <span class="badge ${sched.start_date === today && localDateISO(d) === today ? 'paid' : 'due'}">${sched.start_date === today && localDateISO(d) === today ? 'Paid' : 'Due'}</span></div>`
-    ).join('');
+    if(!sched.start_date) return '<div class="sched-item">Choose a payment date</div>';
+    const occurrences = upcomingOccurrences(sched);
+    return occurrences.map(d => {
+      const date = localDateISO(d);
+      const paid = receivedPayments.some(p => p.schedule_id === sched.id && p.payment_date === date);
+      return `<div class="sched-item"><span>${dayFmt(d)}</span>
+        <button type="button" class="badge paid-action ${paid ? 'paid' : 'due'}" data-schedule="${sched.id}" data-date="${date}" aria-label="${paid ? 'Undo paid' : 'Mark paid'} ${escapeHtml(sched.label)} ${date}">${paid ? 'Paid ✓' : 'Mark paid'}</button></div>`;
+    }).join('');
   }
 
   function updateNextPill(){
     const today = new Date(); today.setHours(0,0,0,0);
-    const tomorrow = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
     const nextByShed = schedules.filter(sched => sched.start_date).map(sched => ({
-      when: nextOccurrenceOnOrAfter(sched, sched.start_date === localDateISO(today) ? tomorrow : today),
+      when: (() => {
+        let when = nextOccurrenceOnOrAfter(sched, today), guard = 0;
+        while(when && guard++ < 100 && receivedPayments.some(p => p.schedule_id === sched.id && p.payment_date === localDateISO(when))){
+          when = nextOccurrenceOnOrAfter(sched, new Date(when.getFullYear(), when.getMonth(), when.getDate() + 1));
+        }
+        return when;
+      })(),
       label: sched.label, amount: sched.amount
-    }));
+    })).filter(item => item.when);
     if(nextByShed.length){
       nextByShed.sort((a,b)=> a.when - b.when);
       const next = nextByShed[0];
@@ -828,13 +853,33 @@
         <div class="amt">${fmt(next.amount)}</div>
         <div class="when">${dayFmt(next.when)} — ${whenText}</div>`;
     } else {
-      document.getElementById('nextPill').innerHTML = `<div class="who">No payment types yet</div>`;
+      document.getElementById('nextPill').innerHTML = `<div class="who">No upcoming payments</div>`;
     }
   }
 
   function renderSchedules(){
     const container = document.getElementById('schedBlocks');
     container.innerHTML = '';
+    container.onclick = async (e) => {
+      const button = e.target.closest('.paid-action');
+      if(!button) return;
+      const sched = schedules.find(s => s.id === button.dataset.schedule);
+      if(!sched) return;
+      button.disabled = true;
+      const date = button.dataset.date;
+      const existing = receivedPayments.find(p => p.schedule_id === sched.id && p.payment_date === date);
+      if(existing){
+        const {error} = await sb.schema('moneysorted').from('payment_receipts').delete().eq('id', existing.id);
+        if(error){ button.disabled = false; showDataError(error); return; }
+        receivedPayments = receivedPayments.filter(p => p.id !== existing.id);
+      } else {
+        const {data,error} = await sb.schema('moneysorted').from('payment_receipts').insert({schedule_id:sched.id,payment_date:date,received_on:localDateISO(new Date()),amount:Number(sched.amount)||0}).select().single();
+        if(error){ button.disabled = false; showDataError(error); return; }
+        receivedPayments.push(data);
+      }
+      renderSchedules();
+      recalcOutgoings();
+    };
 
     schedules.forEach(sched => {
       const block = document.createElement('div');
@@ -848,22 +893,34 @@
           </div>
         </div>
         <div class="sched-controls">
-          <span>First payment</span>
-          <input type="date" value="${sched.start_date || ''}" data-id="${sched.id}" data-f="start_date">
+          <label for="frequency-${sched.id}">How often</label>
+          <select id="frequency-${sched.id}" data-id="${sched.id}" data-f="frequency">
+            <option value="once" ${scheduleFrequency(sched) === 'once' ? 'selected' : ''}>One payment</option>
+            <option value="weekly" ${scheduleFrequency(sched) === 'weekly' ? 'selected' : ''}>Every week</option>
+            <option value="fortnightly" ${scheduleFrequency(sched) === 'fortnightly' ? 'selected' : ''}>Every 2 weeks</option>
+            <option value="four_weekly" ${scheduleFrequency(sched) === 'four_weekly' ? 'selected' : ''}>Every 4 weeks</option>
+            <option value="monthly" ${scheduleFrequency(sched) === 'monthly' ? 'selected' : ''}>Every month</option>
+          </select>
+          <label class="payment-date-label" for="payment-date-${sched.id}">${scheduleFrequency(sched) === 'once' ? 'Payment date' : 'First payment date'}</label>
+          <input id="payment-date-${sched.id}" type="date" value="${sched.start_date || ''}" data-id="${sched.id}" data-f="start_date">
         </div>
         <div class="sched-list" data-id="${sched.id}">${occurrenceListHTML(sched)}</div>`;
       container.appendChild(block);
     });
 
-    container.querySelectorAll('input').forEach(inp => {
-      inp.addEventListener('input', (e) => {
+    container.querySelectorAll('input, select').forEach(inp => {
+      inp.addEventListener(inp.tagName === 'SELECT' ? 'change' : 'input', (e) => {
         const id = e.target.dataset.id, f = e.target.dataset.f;
         const sched = schedules.find(s => s.id === id);
         if(!sched) return;
         sched[f] = f === 'amount' ? (parseFloat(e.target.value) || 0) :
           f === 'start_date' ? (e.target.value || null) : e.target.value;
-
-        if(f === 'start_date'){
+        if(f === 'frequency'){
+          sched.interval_days = intervalForFrequency(sched.frequency);
+          const labelEl = e.target.closest('.sched-controls').querySelector('.payment-date-label');
+          labelEl.textContent = sched.frequency === 'once' ? 'Payment date' : 'First payment date';
+        }
+        if(f === 'start_date' || f === 'frequency'){
           const listEl = container.querySelector(`.sched-list[data-id="${id}"]`);
           if(listEl) listEl.innerHTML = occurrenceListHTML(sched);
         }
@@ -872,7 +929,7 @@
 
         clearTimeout(rowSaveTimers['sched_'+id]);
         rowSaveTimers['sched_'+id] = setTimeout(async () => {
-          const {error} = await sb.schema('moneysorted').from('benefit_schedules').update({label: sched.label, amount: sched.amount, start_date: sched.start_date}).eq('id', id);
+          const {error} = await sb.schema('moneysorted').from('benefit_schedules').update({label: sched.label, amount: sched.amount, start_date: sched.start_date, frequency: scheduleFrequency(sched), interval_days: sched.interval_days}).eq('id', id);
           if(error) showDataError(error);
         }, 600);
       });
@@ -893,7 +950,7 @@
 
   document.getElementById('addSchedule').addEventListener('click', async () => {
     const {data, error} = await sb.schema('moneysorted').from('benefit_schedules')
-      .insert({label:'New payment', start_date: null, amount:0, interval_days:28}).select().single();
+      .insert({label:'New payment', start_date: null, amount:0, interval_days:28, frequency:'four_weekly'}).select().single();
     if(error){ showDataError(error); return; }
     schedules.push(data);
     renderSchedules();
@@ -903,6 +960,7 @@
   // ---------- load everything after login ----------
   async function loadAllData(){
     firstRender = true;
+    receivedPayments = [];
     const userId = uid();
     document.getElementById('accountEmail').textContent = session.user.email;
 
@@ -951,7 +1009,8 @@
     renderCreditCards();
 
     let sc = requireData(await sb.schema('moneysorted').from('benefit_schedules').select('*').order('created_at'));
-    schedules = sc;
+    schedules = sc || [];
+    receivedPayments = requireData(await sb.schema('moneysorted').from('payment_receipts').select('*')) || [];
     renderSchedules();
     recalcOutgoings();
 
