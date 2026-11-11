@@ -225,12 +225,14 @@
     <input type="email" id="authEmail" class="auth-input" placeholder="Email" autocomplete="email">
     <label class="sr-only" for="authPassword">Password</label>
     <input type="password" id="authPassword" class="auth-input" placeholder="Password" autocomplete="current-password">
+    <button type="button" class="btn-ghost" data-password-toggle="authPassword" aria-label="Show password" aria-pressed="false">Show password</button>
     <button class="btn-primary" id="authSubmit">Log in</button>
     <div class="auth-toggle" id="authToggle">New here? <button id="authToggleBtn">Create an account</button></div>
     <div class="auth-toggle" id="forgotPasswordRow"><button id="forgotPasswordBtn">Forgot your password?</button></div>
     <div id="resetPanel" class="hidden">
       <label for="newPassword">New password</label>
       <input type="password" id="newPassword" class="auth-input" autocomplete="new-password" minlength="8">
+      <button type="button" class="btn-ghost" data-password-toggle="newPassword" aria-label="Show new password" aria-pressed="false">Show password</button>
       <button class="btn-primary" id="setPasswordBtn">Set new password</button>
     </div>
     <div class="auth-msg" id="authMsg" role="status" aria-live="polite"></div>
@@ -412,6 +414,15 @@
   let firstRender = true;
   let isSignUpMode = false;
   let recoveryMode = false;
+  let recoveryRedirect = /(?:^|[?#&])type=recovery(?:[&#]|$)/.test(window.location.href);
+  document.querySelectorAll('[data-password-toggle]').forEach(button => button.addEventListener('click', () => {
+    const input = document.getElementById(button.dataset.passwordToggle);
+    const visible = input.type === 'password';
+    input.type = visible ? 'text' : 'password';
+    button.textContent = visible ? 'Hide password' : 'Show password';
+    button.setAttribute('aria-label', `${visible ? 'Hide' : 'Show'} ${input.id === 'newPassword' ? 'new ' : ''}password`);
+    button.setAttribute('aria-pressed', String(visible));
+  }));
   const pendingSaves = new Map();
   const activeSaves = new Map();
   const failedSaves = new Map();
@@ -570,6 +581,7 @@
     authTitle.textContent = 'Set a new password';
     document.getElementById('authEmail').classList.add('hidden');
     document.getElementById('authPassword').classList.add('hidden');
+    document.querySelector('[data-password-toggle="authPassword"]').classList.add('hidden');
     authSubmit.classList.add('hidden');
     authToggle.classList.add('hidden');
     document.getElementById('forgotPasswordRow').classList.add('hidden');
@@ -584,6 +596,7 @@
     try{
       const {error} = await sb.auth.updateUser({password});
       if(error){ authMsg.textContent = error.message; authMsg.className = 'auth-msg error'; return; }
+      recoveryRedirect = false;
       await sb.auth.signOut();
       showAuth();
       authMsg.textContent = 'Password updated. Please log in.';
@@ -624,6 +637,7 @@
     authScreen.classList.remove('hidden');
     document.getElementById('authEmail').classList.remove('hidden');
     document.getElementById('authPassword').classList.remove('hidden');
+    document.querySelector('[data-password-toggle="authPassword"]').classList.remove('hidden');
     authSubmit.classList.remove('hidden');
     authToggle.classList.remove('hidden');
     document.getElementById('forgotPasswordRow').classList.remove('hidden');
@@ -1290,7 +1304,7 @@
   sb.auth.getSession().then(({data}) => {
     session = data.session;
     currentUserId = uid();
-    if(session && window.location.hash.includes('type=recovery')){ showResetPassword(); }
+    if(session && recoveryRedirect){ showResetPassword(); }
     else if(session){ loadAllData().catch(showDataError); } else { showAuth(); }
   });
 
@@ -1301,7 +1315,7 @@
       showResetPassword();
       return;
     }
-    if(recoveryMode && event !== 'SIGNED_OUT') return;
+    if((recoveryMode || recoveryRedirect) && event !== 'SIGNED_OUT') return;
     const newUserId = s && s.user && s.user.id;
     // Supabase re-fires this on things like tab focus / token refresh, not just
     // real login/logout. Only reload (and rebuild the input DOM) when the
