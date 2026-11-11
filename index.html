@@ -537,7 +537,7 @@
     authMsg.textContent = ''; authMsg.className = 'auth-msg';
     try{
       if(isSignUpMode){
-        const {data, error} = await sb.auth.signUp({email, password});
+        const {data, error} = await sb.auth.signUp({email, password, options: {emailRedirectTo: window.location.origin + window.location.pathname}});
         if(error){ authMsg.textContent = error.message; authMsg.className = 'auth-msg error'; }
         else if(!data.session){
           setAuthMode(false);
