@@ -146,6 +146,15 @@
   .card-entry-meta{display:flex;align-items:center;gap:7px;margin-top:3px;color:var(--ink-soft);font-size:.75rem;}
   .card-entry-meta input[type=date]{font-size:.75rem;padding:2px 3px;max-width:132px;}
   .card-actions{display:flex;flex-wrap:wrap;gap:8px;}
+  .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;}
+  .privacy-link{font-size:.82rem;color:var(--positive);}
+  .save-status{display:block;font-size:.78rem;color:var(--ink-soft);margin:3px 0;}
+  .save-status.error{color:var(--danger);}
+  .danger-button{border:1px solid var(--danger);background:transparent;color:var(--danger);border-radius:5px;padding:7px 10px;cursor:pointer;font:inherit;font-size:.82rem;}
+  .account-tools{margin-top:24px;padding-top:16px;border-top:1px solid var(--line);font-size:.85rem;color:var(--ink-soft);}
+  .onboarding{margin-bottom:20px;}
+  .onboarding ol{padding-left:20px;margin:8px 0;}
+  .onboarding li{margin:5px 0;}
   @media (max-width:480px){.card-summary{grid-template-columns:1fr;}.card-summary .card-balance-wrap{grid-column:auto;}}
   .next-pill{background:var(--summary-bg);color:var(--summary-fg);border:1px solid var(--summary-border);border-radius:6px;padding:12px 16px;margin-bottom:16px;}
   .next-pill .who{font-size:0.78rem;opacity:0.75;margin-bottom:2px;}
@@ -212,11 +221,20 @@
   <div id="authScreen" class="auth-box hidden">
     <h1 id="authTitle">Log in</h1>
     <p class="sub">Your outgoings, benefit dates and card balance — all in one place, kept private to you.</p>
+    <label class="sr-only" for="authEmail">Email</label>
     <input type="email" id="authEmail" class="auth-input" placeholder="Email" autocomplete="email">
+    <label class="sr-only" for="authPassword">Password</label>
     <input type="password" id="authPassword" class="auth-input" placeholder="Password" autocomplete="current-password">
     <button class="btn-primary" id="authSubmit">Log in</button>
     <div class="auth-toggle" id="authToggle">New here? <button id="authToggleBtn">Create an account</button></div>
-    <div class="auth-msg" id="authMsg"></div>
+    <div class="auth-toggle" id="forgotPasswordRow"><button id="forgotPasswordBtn">Forgot your password?</button></div>
+    <div id="resetPanel" class="hidden">
+      <label for="newPassword">New password</label>
+      <input type="password" id="newPassword" class="auth-input" autocomplete="new-password" minlength="8">
+      <button class="btn-primary" id="setPasswordBtn">Set new password</button>
+    </div>
+    <div class="auth-msg" id="authMsg" role="status" aria-live="polite"></div>
+    <p class="auth-toggle"><a class="privacy-link" href="/privacy.html">Privacy notice</a></p>
   </div>
 
   <div id="loadingScreen" class="loading-msg">Loading…</div>
@@ -227,8 +245,18 @@
         <h1>Money, sorted</h1>
         <p class="sub" id="todaySub">Everything updates itself as you type — the totals, what's left, and when the next payment lands.</p>
       </div>
-      <div class="account"><span id="accountEmail"></span><button id="logoutBtn">Log out</button></div>
+      <div class="account"><span id="accountEmail"></span><span id="saveStatus" class="save-status" role="status" aria-live="polite">All changes saved</span><button id="retrySaveBtn" class="hidden">Retry save</button><button id="logoutBtn">Log out</button></div>
     </header>
+
+    <section id="onboardingPanel" class="panel onboarding hidden" aria-label="Getting started">
+      <h2>Get started</h2>
+      <ol>
+        <li>Add your regular expenses on the left. Tick Recurring to carry one into the next month.</li>
+        <li>Add payment types on the right. Only payments you mark Paid count toward your balance.</li>
+        <li>Add a card if you want to track its balance. Card figures are entered manually.</li>
+      </ol>
+      <button class="add-row" id="onboardingDismiss">Got it</button>
+    </section>
 
     <div class="grid">
       <!-- LEFT COLUMN -->
@@ -249,6 +277,7 @@
           </div>
           <div id="historyPanel" class="history-panel hidden">
             <div class="history-controls">
+              <label class="sr-only" for="historyMonthSelect">Past month</label>
               <select id="historyMonthSelect"><option value="">Choose a month…</option></select>
             </div>
             <table>
@@ -262,8 +291,8 @@
 
           <div class="totals">
             <div class="income-row">
-              <span>Other income</span>
-              <input type="number" id="incomeInput" value="0" step="1">
+              <label for="incomeInput">Other income</label>
+              <input type="number" id="incomeInput" value="0" min="0" step="0.01">
             </div>
             <div class="income-row">
               <label class="sched-toggle">
@@ -296,7 +325,11 @@
       </div>
     </div>
 
-    <p class="note">Signed in and saved automatically — everything above is private to your account and syncs across devices. Pulling the real Virgin card balance in automatically would need an open banking connection, which is a possible next step rather than something this version does.</p>
+    <p class="note">Your figures are entered manually and saved to your account. Money, Sorted does not connect to your bank. <a class="privacy-link" href="/privacy.html">Privacy notice</a></p>
+    <div class="account-tools"><p>Want to start again? This removes your Money, Sorted financial data. Your shared SparkLab login remains available for other apps.</p>
+      <button class="danger-button" id="deleteDataBtn">Delete my Money, Sorted data</button>
+      <p>For a full login-account deletion request, email <a class="privacy-link" href="mailto:support@wearesparklab.com">support@wearesparklab.com</a>.</p>
+    </div>
   </div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -378,7 +411,61 @@
   let includeScheduleIncome = true;
   let firstRender = true;
   let isSignUpMode = false;
-  const rowSaveTimers = {};
+  let recoveryMode = false;
+  const pendingSaves = new Map();
+  const activeSaves = new Map();
+  const failedSaves = new Map();
+
+  function updateSaveStatus(){
+    const el = document.getElementById('saveStatus');
+    const failed = failedSaves.size > 0;
+    el.textContent = failed ? 'Some changes were not saved.' :
+      pendingSaves.size || activeSaves.size ? 'Saving…' : 'All changes saved';
+    el.classList.toggle('error', failed);
+    document.getElementById('retrySaveBtn').classList.toggle('hidden', !failed);
+  }
+  function runSave(key, record){
+    if(pendingSaves.get(key) !== record) return Promise.resolve();
+    clearTimeout(record.timer);
+    pendingSaves.delete(key);
+    const previous = activeSaves.get(key);
+    const operation = (async () => {
+      if(previous) await previous.catch(() => {});
+      try { await record.save(); failedSaves.delete(key); }
+      catch(error){ failedSaves.set(key, record.save); showDataError(error); }
+    })();
+    activeSaves.set(key, operation);
+    operation.finally(() => {
+      if(activeSaves.get(key) === operation) activeSaves.delete(key);
+      updateSaveStatus();
+    });
+    updateSaveStatus();
+    return operation;
+  }
+  function queueSave(key, save, delay=600){
+    const prior = pendingSaves.get(key);
+    if(prior) clearTimeout(prior.timer);
+    failedSaves.delete(key);
+    const record = {save, timer:null};
+    record.timer = setTimeout(() => runSave(key, record), delay);
+    pendingSaves.set(key, record);
+    updateSaveStatus();
+  }
+  async function flushPendingSaves(){
+    const queued = [...pendingSaves.entries()].map(([key, record]) => runSave(key, record));
+    await Promise.all(queued);
+    await Promise.all([...activeSaves.values()]);
+    return failedSaves.size === 0;
+  }
+  document.getElementById('retrySaveBtn').addEventListener('click', async () => {
+    const retry = [...failedSaves.entries()];
+    retry.forEach(([key,save]) => queueSave(key,save,0));
+    await flushPendingSaves();
+  });
+  document.addEventListener('focusout', () => { if(pendingSaves.size) void flushPendingSaves(); });
+  document.addEventListener('visibilitychange', () => {
+    if(document.visibilityState === 'hidden' && pendingSaves.size) void flushPendingSaves();
+  });
 
   // ---------- helpers ----------
   function fmt(n){
@@ -391,7 +478,6 @@
     el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
     setTimeout(()=>el.classList.remove('flash'), 700);
   }
-  function debounce(fn, ms){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); }; }
   function dayFmt(d){ return d.toLocaleDateString('en-GB', {day:'numeric', month:'long'}); }
   function localDateISO(d){
     return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
@@ -444,34 +530,105 @@
     if(!email || !password){
       authMsg.textContent = 'Enter an email and password.'; authMsg.className = 'auth-msg error'; return;
     }
+    if(isSignUpMode && password.length < 8){
+      authMsg.textContent = 'Use at least 8 characters for your password.'; authMsg.className = 'auth-msg error'; return;
+    }
     authSubmit.disabled = true;
     authMsg.textContent = ''; authMsg.className = 'auth-msg';
     try{
       if(isSignUpMode){
-        const {data, error} = await sb.auth.signUp({email, password});
+        const {data, error} = await sb.auth.signUp({email, password, options: {emailRedirectTo: window.location.origin + window.location.pathname}});
         if(error){ authMsg.textContent = error.message; authMsg.className = 'auth-msg error'; }
         else if(!data.session){
+          setAuthMode(false);
           authMsg.textContent = 'Account created — check your email to confirm it, then log in below.';
           authMsg.className = 'auth-msg ok';
-          setAuthMode(false);
         }
       } else {
         const {error} = await sb.auth.signInWithPassword({email, password});
         if(error){ authMsg.textContent = error.message; authMsg.className = 'auth-msg error'; }
       }
+    } catch(error){
+      authMsg.textContent = 'Could not connect. Check your connection and try again.';
+      authMsg.className = 'auth-msg error';
     } finally {
       authSubmit.disabled = false;
     }
   });
 
+  document.getElementById('forgotPasswordBtn').addEventListener('click', async () => {
+    const email = document.getElementById('authEmail').value.trim();
+    if(!email){ authMsg.textContent = 'Enter your email address first.'; authMsg.className = 'auth-msg error'; return; }
+    const {error} = await sb.auth.resetPasswordForEmail(email, {redirectTo: window.location.origin + window.location.pathname});
+    authMsg.textContent = error ? error.message : 'If an account exists for that email, check your inbox for a reset link.';
+    authMsg.className = error ? 'auth-msg error' : 'auth-msg ok';
+  });
+
+  function showResetPassword(){
+    showAuth();
+    recoveryMode = true;
+    authTitle.textContent = 'Set a new password';
+    document.getElementById('authEmail').classList.add('hidden');
+    document.getElementById('authPassword').classList.add('hidden');
+    authSubmit.classList.add('hidden');
+    authToggle.classList.add('hidden');
+    document.getElementById('forgotPasswordRow').classList.add('hidden');
+    document.getElementById('resetPanel').classList.remove('hidden');
+    document.getElementById('newPassword').focus();
+  }
+  document.getElementById('setPasswordBtn').addEventListener('click', async () => {
+    const password = document.getElementById('newPassword').value;
+    if(password.length < 8){ authMsg.textContent = 'Use at least 8 characters.'; authMsg.className = 'auth-msg error'; return; }
+    const btn = document.getElementById('setPasswordBtn');
+    btn.disabled = true;
+    try{
+      const {error} = await sb.auth.updateUser({password});
+      if(error){ authMsg.textContent = error.message; authMsg.className = 'auth-msg error'; return; }
+      await sb.auth.signOut();
+      showAuth();
+      authMsg.textContent = 'Password updated. Please log in.';
+      authMsg.className = 'auth-msg ok';
+    } finally { btn.disabled = false; }
+  });
+
   document.getElementById('logoutBtn').addEventListener('click', async () => {
+    if(!await flushPendingSaves() && !window.confirm('Some changes could not be saved. Log out anyway?')) return;
     await sb.auth.signOut();
+  });
+  document.getElementById('deleteDataBtn').addEventListener('click', async () => {
+    const typed = window.prompt('This permanently removes your Money, Sorted financial data. Your shared SparkLab login remains. Type DELETE to continue.');
+    if(typed !== 'DELETE') return;
+    const btn = document.getElementById('deleteDataBtn');
+    btn.disabled = true;
+    try{
+      pendingSaves.forEach(record => clearTimeout(record.timer));
+      pendingSaves.clear();
+      await Promise.all([...activeSaves.values()]);
+      const {error} = await sb.schema('moneysorted').rpc('delete_my_financial_data');
+      if(error){ showDataError(error); return; }
+      await sb.auth.signOut();
+      showAuth();
+      authMsg.textContent = 'Your Money, Sorted data was deleted. Your shared login remains available.';
+      authMsg.className = 'auth-msg ok';
+    } finally { btn.disabled = false; }
+  });
+  document.getElementById('onboardingDismiss').addEventListener('click', () => {
+    document.getElementById('onboardingPanel').classList.add('hidden');
+    try{ localStorage.setItem('moneysorted_onboarding_'+uid(),'dismissed'); }catch(e){}
   });
 
   function showAuth(){
+    recoveryMode = false;
     loadingScreen.classList.add('hidden');
     app.classList.add('hidden');
     authScreen.classList.remove('hidden');
+    document.getElementById('authEmail').classList.remove('hidden');
+    document.getElementById('authPassword').classList.remove('hidden');
+    authSubmit.classList.remove('hidden');
+    authToggle.classList.remove('hidden');
+    document.getElementById('forgotPasswordRow').classList.remove('hidden');
+    document.getElementById('resetPanel').classList.add('hidden');
+    setAuthMode(false);
   }
   function showApp(){
     loadingScreen.classList.add('hidden');
@@ -486,10 +643,10 @@
     list.forEach(row => {
       const tr = document.createElement('tr');
       tr.innerHTML = `
-        <td><input type="text" value="${escapeHtml(row.name)}" data-id="${row.id}" data-f="name"></td>
-        <td class="amount"><input type="number" step="1" value="${row.amount || 0}" data-id="${row.id}" data-f="amount"></td>
-        <td class="date"><input type="number" min="1" max="31" placeholder="Day" value="${row.due_day || ''}" data-id="${row.id}" data-f="due_day"></td>
-        ${showRecurring ? `<td class="recur"><input type="checkbox" ${row.is_recurring ? 'checked' : ''} data-id="${row.id}" data-f="is_recurring"></td>` : ''}
+        <td><input type="text" aria-label="Expense name" value="${escapeHtml(row.name)}" data-id="${row.id}" data-f="name"></td>
+        <td class="amount"><input type="number" aria-label="Expense amount" min="0" step="0.01" value="${row.amount || 0}" data-id="${row.id}" data-f="amount"></td>
+        <td class="date"><input type="number" aria-label="Day of month due" min="1" max="31" placeholder="Day" value="${row.due_day || ''}" data-id="${row.id}" data-f="due_day"></td>
+        ${showRecurring ? `<td class="recur"><input type="checkbox" aria-label="Repeat monthly" ${row.is_recurring ? 'checked' : ''} data-id="${row.id}" data-f="is_recurring"></td>` : ''}
         <td class="rm"><button title="Remove" data-id="${row.id}">✕</button></td>`;
       body.appendChild(tr);
     });
@@ -504,14 +661,14 @@
           const v = parseInt(e.target.value, 10);
           row[f] = (v >= 1 && v <= 31) ? v : null;
         }
-        else { row[f] = f === 'amount' ? (parseFloat(e.target.value) || 0) : e.target.value; }
+        else { row[f] = f === 'amount' ? Math.max(0, parseFloat(e.target.value) || 0) : e.target.value; }
+        if(f === 'amount' && Number(e.target.value) < 0) e.target.value = '0';
         recalcFn();
-        clearTimeout(rowSaveTimers[id]);
-        rowSaveTimers[id] = setTimeout(async () => {
+        queueSave('outgoing_'+id, async () => {
           const patch = {name: row.name, amount: row.amount, due_day: row.due_day};
           if(showRecurring) patch.is_recurring = row.is_recurring;
           const {error} = await sb.schema('moneysorted').from(table).update(patch).eq('id', id);
-          if(error) showDataError(error);
+          if(error) throw error;
         }, f === 'is_recurring' ? 0 : 600);
       });
     });
@@ -543,6 +700,33 @@
   function monthLabel(key){
     const [y,m] = key.split('-').map(Number);
     return new Date(y, m-1, 1).toLocaleDateString('en-GB', {month:'long', year:'numeric'});
+  }
+  function planRecurringCarryForward(currentRows, earlierRows, monthKey, lastProcessedMonth){
+    const sourceMonth = earlierRows.find(row => row.month < monthKey)?.month;
+    if(!sourceMonth || (lastProcessedMonth && sourceMonth < lastProcessedMonth)) return {adoptions:[], inserts:[]};
+    const sources = earlierRows.filter(row => row.month === sourceMonth && row.is_recurring);
+    const used = new Set();
+    const adoptions = [], inserts = [];
+    for(const source of sources){
+      const seriesId = source.recurring_id || source.id;
+      let match = currentRows.find(row => !used.has(row.id) && row.recurring_id === seriesId);
+      if(!match){
+        match = currentRows.find(row => !used.has(row.id) && !row.recurring_id &&
+          row.name === source.name && row.due_day === source.due_day && Number(row.amount) === Number(source.amount));
+      }
+      if(!match){
+        match = currentRows.find(row => !used.has(row.id) && !row.recurring_id &&
+          row.name === source.name && row.due_day === source.due_day);
+      }
+      if(match){
+        used.add(match.id);
+        if(!match.recurring_id) adoptions.push({row:match,seriesId});
+      } else {
+        inserts.push({name:source.name,amount:source.amount,due_day:source.due_day,
+          is_recurring:true,month:monthKey,recurring_id:seriesId});
+      }
+    }
+    return {adoptions,inserts};
   }
 
   document.getElementById('addOutgoing').addEventListener('click', () =>
@@ -662,11 +846,10 @@
         row[f] = f === 'amount' ? Math.max(0, parseFloat(e.target.value) || 0) : f === 'entry_date' ? (e.target.value || null) : e.target.value;
         if(f === 'amount' && Number(e.target.value) < 0) e.target.value = '0';
         if(f === 'amount') recalcCardTotal(card.id);
-        clearTimeout(rowSaveTimers[id]);
-        rowSaveTimers[id] = setTimeout(async () => {
+        queueSave('card_item_'+id, async () => {
           const {error} = await sb.schema('moneysorted').from('card_items').update({name: row.name, amount: row.amount, entry_date: row.entry_date}).eq('id', id);
-          if(error) showDataError(error);
-        }, 600);
+          if(error) throw error;
+        });
       });
     });
     body.querySelectorAll('.rm button').forEach(btn => {
@@ -696,7 +879,7 @@
       panel.className = 'panel card-panel';
       panel.innerHTML = `
         <div class="card-panel-head">
-          <input type="text" class="card-name-input" value="${escapeHtml(card.name)}" data-id="${card.id}">
+          <input type="text" class="card-name-input" aria-label="Card name" value="${escapeHtml(card.name)}" data-id="${card.id}">
           <button class="rm-card" title="Remove card" data-id="${card.id}">✕</button>
         </div>
         <p class="hint">Keep the starting balance as it was; add purchases and payments below. Figures are entered by you.</p>
@@ -737,11 +920,10 @@
           field === 'payment_due_date' ? (e.target.value || null) : e.target.value;
         if((field === 'credit_limit' || field === 'minimum_payment') && Number(e.target.value) < 0) e.target.value = '0';
         if(field === 'credit_limit') recalcCardTotal(id);
-        clearTimeout(rowSaveTimers['card_'+id]);
-        rowSaveTimers['card_'+id] = setTimeout(async () => {
+        queueSave('card_'+id, async () => {
           const {error} = await sb.schema('moneysorted').from('credit_cards').update({name: card.name, credit_limit: card.credit_limit, minimum_payment: card.minimum_payment, payment_due_date: card.payment_due_date}).eq('id', id);
-          if(error) showDataError(error);
-        }, 600);
+          if(error) throw error;
+        });
       });
     });
     container.querySelectorAll('.rm-card').forEach(btn => {
@@ -766,20 +948,22 @@
     renderCreditCards();
   });
 
-  const saveIncomeDebounced = debounce(async () => {
-    const {error} = await sb.schema('moneysorted').from('settings').update({monthly_income: income, updated_at: new Date().toISOString()}).eq('user_id', uid());
-    if(error) showDataError(error);
-  }, 600);
   document.getElementById('incomeInput').addEventListener('input', (e) => {
-    income = parseFloat(e.target.value) || 0;
+    income = Math.max(0, parseFloat(e.target.value) || 0);
+    if(Number(e.target.value) < 0) e.target.value = '0';
     recalcOutgoings();
-    saveIncomeDebounced();
+    queueSave('income', async () => {
+      const {error} = await sb.schema('moneysorted').from('settings').update({monthly_income: income, updated_at: new Date().toISOString()}).eq('user_id', uid());
+      if(error) throw error;
+    });
   });
   document.getElementById('includeScheduleIncome').addEventListener('change', async (e) => {
     includeScheduleIncome = e.target.checked;
     recalcOutgoings();
-    const {error} = await sb.schema('moneysorted').from('settings').update({include_schedule_income: includeScheduleIncome}).eq('user_id', uid());
-    if(error) showDataError(error);
+    queueSave('include_income', async () => {
+      const {error} = await sb.schema('moneysorted').from('settings').update({include_schedule_income: includeScheduleIncome}).eq('user_id', uid());
+      if(error) throw error;
+    },0);
   });
 
   // ---------- outgoing due dates ----------
@@ -931,9 +1115,9 @@
       block.className = 'sched-block';
       block.innerHTML = `
         <div class="sched-head">
-          <input type="text" class="sched-label" value="${escapeHtml(sched.label)}" data-id="${sched.id}" data-f="label">
+          <input type="text" class="sched-label" aria-label="Payment type name" value="${escapeHtml(sched.label)}" data-id="${sched.id}" data-f="label">
           <div class="sched-head-row2">
-            <input type="number" class="amt-input" value="${sched.amount}" step="0.01" data-id="${sched.id}" data-f="amount">
+            <input type="number" class="amt-input" aria-label="Payment amount" min="0" value="${sched.amount}" step="0.01" data-id="${sched.id}" data-f="amount">
             <span class="rm"><button title="Remove" data-id="${sched.id}">✕</button></span>
           </div>
         </div>
@@ -960,6 +1144,10 @@
         if(!sched) return;
         sched[f] = f === 'amount' ? (parseFloat(e.target.value) || 0) :
           f === 'start_date' ? (e.target.value || null) : e.target.value;
+        if(f === 'amount'){
+          sched.amount = Math.max(0, sched.amount);
+          if(Number(e.target.value) < 0) e.target.value = '0';
+        }
         if(f === 'frequency'){
           sched.interval_days = intervalForFrequency(sched.frequency);
           const labelEl = e.target.closest('.sched-controls').querySelector('.payment-date-label');
@@ -972,11 +1160,10 @@
         updateNextPill();
         recalcOutgoings();
 
-        clearTimeout(rowSaveTimers['sched_'+id]);
-        rowSaveTimers['sched_'+id] = setTimeout(async () => {
+        queueSave('sched_'+id, async () => {
           const {error} = await sb.schema('moneysorted').from('benefit_schedules').update({label: sched.label, amount: sched.amount, start_date: sched.start_date, frequency: scheduleFrequency(sched), interval_days: sched.interval_days}).eq('id', id);
-          if(error) showDataError(error);
-        }, 600);
+          if(error) throw error;
+        });
       });
     });
     container.querySelectorAll('.rm button').forEach(btn => {
@@ -1005,7 +1192,29 @@
   // ---------- load everything after login ----------
   async function loadAllData(){
     firstRender = true;
+    app.classList.add('hidden');
+    loadingScreen.classList.remove('hidden');
+    outgoings = [];
+    creditCards = [];
+    cardItems = [];
+    schedules = [];
     receivedPayments = [];
+    income = 0;
+    pendingSaves.forEach(record => clearTimeout(record.timer));
+    pendingSaves.clear();
+    failedSaves.clear();
+    updateSaveStatus();
+    historyRows = null;
+    historyPanel.classList.add('hidden');
+    historyBtn.textContent = 'View past months';
+    historySelect.innerHTML = '<option value="">Choose a month…</option>';
+    document.getElementById('historyBody').innerHTML = '';
+    document.getElementById('historyTotalLine').textContent = 'Total — £0.00';
+    document.getElementById('outgoingsBody').innerHTML = '';
+    document.getElementById('cardsContainer').innerHTML = '';
+    document.getElementById('schedBlocks').innerHTML = '';
+    document.getElementById('nextPill').innerHTML = '';
+    document.getElementById('outgoingNextPill').innerHTML = '';
     const userId = uid();
     document.getElementById('accountEmail').textContent = session.user.email;
 
@@ -1025,29 +1234,33 @@
     let og = requireData(await sb.schema('moneysorted').from('outgoings').select('*').eq('month', monthKey).order('created_at'));
     og = og || [];
 
-    if(og.length === 0){
-      // no rows yet for this month — carry forward the latest amount for each recurring item
-      const recurring = requireData(await sb.schema('moneysorted').from('outgoings').select('*').eq('is_recurring', true).order('month', {ascending:false}));
-      if(recurring && recurring.length){
-        const latestByName = {};
-        recurring.forEach(r => { if(!(r.name in latestByName)) latestByName[r.name] = r; });
-        const toInsert = Object.values(latestByName).map(r => ({
-          name: r.name, amount: r.amount, due_day: r.due_day, is_recurring: true, month: monthKey
-        }));
-        const inserted = requireData(await sb.schema('moneysorted').from('outgoings').insert(toInsert).select());
-        og = inserted || [];
+    if(settingsRows?.[0]?.last_carry_month !== monthKey){
+      const earlier = requireData(await sb.schema('moneysorted').from('outgoings').select('*')
+        .lt('month', monthKey).order('month', {ascending:false}).order('created_at')) || [];
+      const plan = planRecurringCarryForward(og, earlier, monthKey, settingsRows?.[0]?.last_carry_month);
+      for(const adoption of plan.adoptions){
+        requireData(await sb.schema('moneysorted').from('outgoings')
+          .update({recurring_id:adoption.seriesId}).eq('id',adoption.row.id).select('id').single());
+        adoption.row.recurring_id = adoption.seriesId;
       }
+      if(plan.inserts.length){
+        const result = await sb.schema('moneysorted').from('outgoings').insert(plan.inserts).select();
+        if(result.error?.code === '23505'){
+          og = requireData(await sb.schema('moneysorted').from('outgoings').select('*')
+            .eq('month',monthKey).order('created_at')) || [];
+        } else {
+          og.push(...(requireData(result) || []));
+        }
+      }
+      requireData(await sb.schema('moneysorted').from('settings')
+        .update({last_carry_month:monthKey}).eq('user_id',userId).select('user_id').single());
     }
     outgoings = og;
     renderLedger(outgoings, 'outgoingsBody', 'outgoings', recalcOutgoings, true);
     recalcOutgoings();
 
-    let cc = requireData(await sb.schema('moneysorted').from('credit_cards').select('*').order('created_at'));
-    if(!cc || cc.length === 0){
-      const inserted = requireData(await sb.schema('moneysorted').from('credit_cards').insert({name:'Virgin credit card'}).select());
-      cc = inserted || [];
-    }
-    creditCards = cc;
+    const cc = requireData(await sb.schema('moneysorted').from('credit_cards').select('*').order('created_at'));
+    creditCards = cc || [];
 
     const ci = requireData(await sb.schema('moneysorted').from('card_items').select('*').order('created_at'));
     cardItems = ci || [];
@@ -1058,6 +1271,10 @@
     receivedPayments = requireData(await sb.schema('moneysorted').from('payment_receipts').select('*')) || [];
     renderSchedules();
     recalcOutgoings();
+    let onboardingDismissed = false;
+    try{ onboardingDismissed = localStorage.getItem('moneysorted_onboarding_'+userId) === 'dismissed'; }catch(e){}
+    document.getElementById('onboardingPanel').classList.toggle('hidden',
+      onboardingDismissed || outgoings.length > 0 || schedules.length > 0 || creditCards.length > 0);
 
     const now = new Date();
     document.getElementById('todaySub').textContent =
@@ -1073,10 +1290,18 @@
   sb.auth.getSession().then(({data}) => {
     session = data.session;
     currentUserId = uid();
-    if(session){ loadAllData().catch(showDataError); } else { showAuth(); }
+    if(session && window.location.hash.includes('type=recovery')){ showResetPassword(); }
+    else if(session){ loadAllData().catch(showDataError); } else { showAuth(); }
   });
 
   sb.auth.onAuthStateChange((event, s) => {
+    if(event === 'PASSWORD_RECOVERY'){
+      session = s;
+      currentUserId = s?.user?.id || null;
+      showResetPassword();
+      return;
+    }
+    if(recoveryMode && event !== 'SIGNED_OUT') return;
     const newUserId = s && s.user && s.user.id;
     // Supabase re-fires this on things like tab focus / token refresh, not just
     // real login/logout. Only reload (and rebuild the input DOM) when the
