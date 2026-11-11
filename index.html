@@ -153,8 +153,10 @@
   .danger-button{border:1px solid var(--danger);background:transparent;color:var(--danger);border-radius:5px;padding:7px 10px;cursor:pointer;font:inherit;font-size:.82rem;}
   .account-tools{margin-top:24px;padding-top:16px;border-top:1px solid var(--line);font-size:.85rem;color:var(--ink-soft);}
   .onboarding{margin-bottom:20px;}
+  #onboardingOpen{margin-bottom:12px;}
   .onboarding ol{padding-left:20px;margin:8px 0;}
   .onboarding li{margin:5px 0;}
+  .onboarding-example{border:1px solid var(--line);border-radius:5px;padding:10px 12px;margin:12px 0;color:var(--ink-soft);font-size:.88rem;}
   @media (max-width:480px){.card-summary{grid-template-columns:1fr;}.card-summary .card-balance-wrap{grid-column:auto;}}
   .next-pill{background:var(--summary-bg);color:var(--summary-fg);border:1px solid var(--summary-border);border-radius:6px;padding:12px 16px;margin-bottom:16px;}
   .next-pill .who{font-size:0.78rem;opacity:0.75;margin-bottom:2px;}
@@ -258,13 +260,15 @@
       <div class="account"><span id="accountEmail"></span><span id="saveStatus" class="save-status" role="status" aria-live="polite">All changes saved</span><button id="retrySaveBtn" class="hidden">Retry save</button><button id="logoutBtn">Log out</button></div>
     </header>
 
+    <button class="add-row" id="onboardingOpen" aria-controls="onboardingPanel" aria-expanded="false">How it works</button>
     <section id="onboardingPanel" class="panel onboarding hidden" aria-label="Getting started">
       <h2>Get started</h2>
       <ol>
-        <li>Add your regular expenses on the left. Tick Recurring to carry one into the next month.</li>
-        <li>Add payment types on the right. Only payments you mark Paid count toward your balance.</li>
-        <li>Add a card if you want to track its balance. Card figures are entered manually.</li>
+        <li>Add an expense and its due day. Tick Recurring if it should appear next month.</li>
+        <li>Add a payment type and choose how often it arrives. Its date is a reminder; it counts as income only when you mark that payment <strong>Paid</strong>.</li>
+        <li>Add a card to track what you owe, purchases and payments. Enter card figures yourself; they do not change the monthly cash balance.</li>
       </ol>
+      <p class="onboarding-example"><strong>Example only — nothing is added to your account:</strong> £120 of payments marked Paid and £50 of expenses gives £70 left over. A future payment stays out of that total until you mark it Paid.</p>
       <button class="add-row" id="onboardingDismiss">Got it</button>
     </section>
 
@@ -634,7 +638,14 @@
   });
   document.getElementById('onboardingDismiss').addEventListener('click', () => {
     document.getElementById('onboardingPanel').classList.add('hidden');
+    document.getElementById('onboardingOpen').setAttribute('aria-expanded', 'false');
     try{ localStorage.setItem('moneysorted_onboarding_'+uid(),'dismissed'); }catch(e){}
+  });
+  document.getElementById('onboardingOpen').addEventListener('click', () => {
+    const panel = document.getElementById('onboardingPanel');
+    const open = panel.classList.toggle('hidden') === false;
+    document.getElementById('onboardingOpen').setAttribute('aria-expanded', String(open));
+    if(open) panel.scrollIntoView({block:'start', behavior:'smooth'});
   });
 
   function showAuth(){
@@ -1296,6 +1307,7 @@
     try{ onboardingDismissed = localStorage.getItem('moneysorted_onboarding_'+userId) === 'dismissed'; }catch(e){}
     document.getElementById('onboardingPanel').classList.toggle('hidden',
       onboardingDismissed || outgoings.length > 0 || schedules.length > 0 || creditCards.length > 0);
+    document.getElementById('onboardingOpen').setAttribute('aria-expanded', String(!document.getElementById('onboardingPanel').classList.contains('hidden')));
 
     const now = new Date();
     document.getElementById('todaySub').textContent =
