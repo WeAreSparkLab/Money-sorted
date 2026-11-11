@@ -199,6 +199,14 @@
     font-family:'IBM Plex Sans', sans-serif;font-size:0.92rem;margin-bottom:10px;color:var(--ink);background:var(--panel);}
   .auth-input::placeholder{color:var(--ink-soft);opacity:1;}
   .auth-input:focus-visible{outline:2px solid var(--positive);outline-offset:1px;}
+  .password-field{position:relative;}
+  .password-field .auth-input{border:1px solid var(--line);background:var(--panel);padding:10px 44px 10px 12px;border-radius:5px;width:100%;}
+  .password-eye{position:absolute;right:4px;top:3px;width:36px;height:36px;border:0;background:transparent;color:var(--ink-soft);cursor:pointer;display:grid;place-items:center;}
+  .password-eye:hover{color:var(--ink);}
+  .password-eye:focus-visible{outline:2px solid var(--positive);outline-offset:-2px;}
+  .password-eye svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;}
+  .password-eye .eye-slash{display:none;}
+  .password-eye[aria-pressed="true"] .eye-slash{display:block;}
   .btn-primary{background:var(--accent-bg);color:var(--accent-fg);border:none;padding:11px 16px;border-radius:5px;
     cursor:pointer;font-family:inherit;font-size:0.92rem;width:100%;margin-top:4px;}
   .btn-primary:hover{background:var(--accent-bg-hover);}
@@ -224,13 +232,15 @@
     <label class="sr-only" for="authEmail">Email</label>
     <input type="email" id="authEmail" class="auth-input" placeholder="Email" autocomplete="email">
     <label class="sr-only" for="authPassword">Password</label>
-    <input type="password" id="authPassword" class="auth-input" placeholder="Password" autocomplete="current-password">
+    <div class="password-field"><input type="password" id="authPassword" class="auth-input" placeholder="Password" autocomplete="current-password">
+      <button type="button" class="password-eye" data-password-toggle="authPassword" aria-label="Show password" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/><path class="eye-slash" d="M3 21 21 3"/></svg></button></div>
     <button class="btn-primary" id="authSubmit">Log in</button>
     <div class="auth-toggle" id="authToggle">New here? <button id="authToggleBtn">Create an account</button></div>
     <div class="auth-toggle" id="forgotPasswordRow"><button id="forgotPasswordBtn">Forgot your password?</button></div>
     <div id="resetPanel" class="hidden">
       <label for="newPassword">New password</label>
-      <input type="password" id="newPassword" class="auth-input" autocomplete="new-password" minlength="8">
+      <div class="password-field"><input type="password" id="newPassword" class="auth-input" autocomplete="new-password" minlength="8">
+        <button type="button" class="password-eye" data-password-toggle="newPassword" aria-label="Show new password" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/><path class="eye-slash" d="M3 21 21 3"/></svg></button></div>
       <button class="btn-primary" id="setPasswordBtn">Set new password</button>
     </div>
     <div class="auth-msg" id="authMsg" role="status" aria-live="polite"></div>
@@ -398,6 +408,7 @@
 
   const SUPABASE_URL = 'https://zckbrbqxnibzmuesqsok.supabase.co';
   const SUPABASE_KEY = 'sb_publishable_-NEaU78G8mtqCRFc-9WEFg_aHA5OsIn';
+  let recoveryRedirect = /(?:^|[?#&])type=recovery(?:[&#]|$)/.test(window.location.href);
   const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
   // ---------- state ----------
@@ -412,6 +423,13 @@
   let firstRender = true;
   let isSignUpMode = false;
   let recoveryMode = false;
+  document.querySelectorAll('[data-password-toggle]').forEach(button => button.addEventListener('click', () => {
+    const input = document.getElementById(button.dataset.passwordToggle);
+    const visible = input.type === 'password';
+    input.type = visible ? 'text' : 'password';
+    button.setAttribute('aria-label', `${visible ? 'Hide' : 'Show'} ${input.id === 'newPassword' ? 'new ' : ''}password`);
+    button.setAttribute('aria-pressed', String(visible));
+  }));
   const pendingSaves = new Map();
   const activeSaves = new Map();
   const failedSaves = new Map();
@@ -570,6 +588,7 @@
     authTitle.textContent = 'Set a new password';
     document.getElementById('authEmail').classList.add('hidden');
     document.getElementById('authPassword').classList.add('hidden');
+    document.querySelector('[data-password-toggle="authPassword"]').classList.add('hidden');
     authSubmit.classList.add('hidden');
     authToggle.classList.add('hidden');
     document.getElementById('forgotPasswordRow').classList.add('hidden');
@@ -584,6 +603,7 @@
     try{
       const {error} = await sb.auth.updateUser({password});
       if(error){ authMsg.textContent = error.message; authMsg.className = 'auth-msg error'; return; }
+      recoveryRedirect = false;
       await sb.auth.signOut();
       showAuth();
       authMsg.textContent = 'Password updated. Please log in.';
@@ -624,6 +644,7 @@
     authScreen.classList.remove('hidden');
     document.getElementById('authEmail').classList.remove('hidden');
     document.getElementById('authPassword').classList.remove('hidden');
+    document.querySelector('[data-password-toggle="authPassword"]').classList.remove('hidden');
     authSubmit.classList.remove('hidden');
     authToggle.classList.remove('hidden');
     document.getElementById('forgotPasswordRow').classList.remove('hidden');
@@ -1290,7 +1311,7 @@
   sb.auth.getSession().then(({data}) => {
     session = data.session;
     currentUserId = uid();
-    if(session && window.location.hash.includes('type=recovery')){ showResetPassword(); }
+    if(session && recoveryRedirect){ showResetPassword(); }
     else if(session){ loadAllData().catch(showDataError); } else { showAuth(); }
   });
 
@@ -1301,7 +1322,7 @@
       showResetPassword();
       return;
     }
-    if(recoveryMode && event !== 'SIGNED_OUT') return;
+    if((recoveryMode || recoveryRedirect) && event !== 'SIGNED_OUT') return;
     const newUserId = s && s.user && s.user.id;
     // Supabase re-fires this on things like tab focus / token refresh, not just
     // real login/logout. Only reload (and rebuild the input DOM) when the
