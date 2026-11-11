@@ -701,9 +701,9 @@
     const [y,m] = key.split('-').map(Number);
     return new Date(y, m-1, 1).toLocaleDateString('en-GB', {month:'long', year:'numeric'});
   }
-  function planRecurringCarryForward(currentRows, earlierRows, monthKey){
+  function planRecurringCarryForward(currentRows, earlierRows, monthKey, lastProcessedMonth){
     const sourceMonth = earlierRows.find(row => row.month < monthKey)?.month;
-    if(!sourceMonth) return {adoptions:[], inserts:[]};
+    if(!sourceMonth || (lastProcessedMonth && sourceMonth < lastProcessedMonth)) return {adoptions:[], inserts:[]};
     const sources = earlierRows.filter(row => row.month === sourceMonth && row.is_recurring);
     const used = new Set();
     const adoptions = [], inserts = [];
@@ -1215,10 +1215,10 @@
     if(settingsRows?.[0]?.last_carry_month !== monthKey){
       const earlier = requireData(await sb.schema('moneysorted').from('outgoings').select('*')
         .lt('month', monthKey).order('month', {ascending:false}).order('created_at')) || [];
-      const plan = planRecurringCarryForward(og, earlier, monthKey);
+      const plan = planRecurringCarryForward(og, earlier, monthKey, settingsRows?.[0]?.last_carry_month);
       for(const adoption of plan.adoptions){
         requireData(await sb.schema('moneysorted').from('outgoings')
-          .update({recurring_id:adoption.seriesId}).eq('id',adoption.row.id));
+          .update({recurring_id:adoption.seriesId}).eq('id',adoption.row.id).select('id').single());
         adoption.row.recurring_id = adoption.seriesId;
       }
       if(plan.inserts.length){
@@ -1231,7 +1231,7 @@
         }
       }
       requireData(await sb.schema('moneysorted').from('settings')
-        .update({last_carry_month:monthKey}).eq('user_id',userId));
+        .update({last_carry_month:monthKey}).eq('user_id',userId).select('user_id').single());
     }
     outgoings = og;
     renderLedger(outgoings, 'outgoingsBody', 'outgoings', recalcOutgoings, true);
