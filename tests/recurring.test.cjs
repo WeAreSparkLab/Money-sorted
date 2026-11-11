@@ -21,6 +21,8 @@ assert.equal(result.inserts[0].amount,600);
 assert.equal(plan([{id:'c',name:'Rent',amount:500,due_day:1,is_recurring:false}],earlier.slice(0,1),'2026-11-01').inserts.length,0);
 assert.equal(plan([], [{id:'x',month:'2026-10-01',is_recurring:false},...earlier.filter(r=>r.month==='2026-09-01')], '2026-11-01').inserts.length,0);
 assert.equal(plan([], [], '2026-11-01').inserts.length,0);
+assert.equal(plan([], earlier.filter(r=>r.month==='2026-09-01'), '2026-12-01','2026-11-01').inserts.length,0,
+  'a deleted month must not resurrect older recurring bills');
 console.log('Recurring series and partial-month checks passed');
 
 
