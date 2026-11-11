@@ -136,6 +136,17 @@
   .card-panel-head .rm-card{background:none;border:none;color:var(--ink-soft);cursor:pointer;
     font-size:1rem;padding:4px;flex-shrink:0;}
   .card-panel-head .rm-card:hover{color:var(--warning);}
+  .card-summary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:14px 0;padding:14px;border:1px solid var(--line);border-radius:6px;}
+  .card-summary .card-balance-wrap{grid-column:1/-1;}
+  .card-field label,.card-stat-label{display:block;color:var(--ink-soft);font-size:.78rem;margin-bottom:4px;}
+  .card-field input{border:1px solid var(--line);padding:8px;border-radius:5px;background:var(--panel);color:var(--ink);}
+  .card-field input[type=number]{text-align:left;}
+  .card-available{font-weight:600;font-size:1.05rem;}
+  .card-available.negative{color:var(--danger);}
+  .card-entry-meta{display:flex;align-items:center;gap:7px;margin-top:3px;color:var(--ink-soft);font-size:.75rem;}
+  .card-entry-meta input[type=date]{font-size:.75rem;padding:2px 3px;max-width:132px;}
+  .card-actions{display:flex;flex-wrap:wrap;gap:8px;}
+  @media (max-width:480px){.card-summary{grid-template-columns:1fr;}.card-summary .card-balance-wrap{grid-column:auto;}}
   .next-pill{background:var(--summary-bg);color:var(--summary-fg);border:1px solid var(--summary-border);border-radius:6px;padding:12px 16px;margin-bottom:16px;}
   .next-pill .who{font-size:0.78rem;opacity:0.75;margin-bottom:2px;}
   .next-pill .amt{font-family:'Fraunces', serif;font-size:1.3rem;font-weight:600;}
@@ -608,12 +619,26 @@
   function cardItemsFor(cardId){
     return cardItems.filter(r => r.card_id === cardId);
   }
+  function cardItemEffect(row){
+    const amount = Number(row.amount) || 0;
+    return row.entry_type === 'payment' ? -amount : amount;
+  }
+  function cardBalance(cardId){
+    return cardItemsFor(cardId).reduce((sum, row) => sum + cardItemEffect(row), 0);
+  }
   function recalcCardTotal(cardId){
-    const total = cardItemsFor(cardId).reduce((s,r)=>s+(r.amount||0), 0);
+    const total = cardBalance(cardId);
     const el = document.querySelector(`.card-balance[data-card-total="${cardId}"]`);
     if(!el) return;
     el.textContent = fmt(total);
     flash(el);
+    const card = creditCards.find(c => c.id === cardId);
+    const availableEl = document.querySelector(`.card-available[data-card-available="${cardId}"]`);
+    if(availableEl && card){
+      const limit = card.credit_limit == null || card.credit_limit === '' ? null : Number(card.credit_limit);
+      availableEl.textContent = limit === null ? 'Set a credit limit' : fmt(limit - total);
+      availableEl.classList.toggle('negative', limit !== null && limit - total < 0);
+    }
   }
   function renderCardItemsBody(card){
     const body = document.querySelector(`tbody[data-card-body="${card.id}"]`);
@@ -622,8 +647,10 @@
     cardItemsFor(card.id).forEach(row => {
       const tr = document.createElement('tr');
       tr.innerHTML = `
-        <td><input type="text" value="${escapeHtml(row.name)}" data-id="${row.id}" data-f="name"></td>
-        <td class="amount"><input type="number" step="1" value="${row.amount || 0}" data-id="${row.id}" data-f="amount"></td>
+        <td><input type="text" aria-label="Entry name" value="${escapeHtml(row.name)}" data-id="${row.id}" data-f="name">
+          <div class="card-entry-meta"><span>${row.entry_type === 'payment' ? 'Payment' : row.entry_type === 'opening_balance' ? 'Starting balance' : 'Purchase'}</span>
+            <input type="date" aria-label="Entry date" value="${row.entry_date || ''}" data-id="${row.id}" data-f="entry_date"></div></td>
+        <td class="amount"><input type="number" aria-label="${row.entry_type === 'payment' ? 'Payment amount' : 'Entry amount'}" min="0" step="0.01" value="${row.amount || 0}" data-id="${row.id}" data-f="amount"></td>
         <td class="rm"><button title="Remove" data-id="${row.id}">✕</button></td>`;
       body.appendChild(tr);
     });
@@ -632,11 +659,12 @@
         const id = e.target.dataset.id, f = e.target.dataset.f;
         const row = cardItems.find(r => r.id === id);
         if(!row) return;
-        row[f] = f === 'amount' ? (parseFloat(e.target.value) || 0) : e.target.value;
-        recalcCardTotal(card.id);
+        row[f] = f === 'amount' ? Math.max(0, parseFloat(e.target.value) || 0) : f === 'entry_date' ? (e.target.value || null) : e.target.value;
+        if(f === 'amount' && Number(e.target.value) < 0) e.target.value = '0';
+        if(f === 'amount') recalcCardTotal(card.id);
         clearTimeout(rowSaveTimers[id]);
         rowSaveTimers[id] = setTimeout(async () => {
-          const {error} = await sb.schema('moneysorted').from('card_items').update({name: row.name, amount: row.amount}).eq('id', id);
+          const {error} = await sb.schema('moneysorted').from('card_items').update({name: row.name, amount: row.amount, entry_date: row.entry_date}).eq('id', id);
           if(error) showDataError(error);
         }, 600);
       });
@@ -653,8 +681,8 @@
       });
     });
   }
-  async function addCardItem(cardId){
-    const {data, error} = await sb.schema('moneysorted').from('card_items').insert({name:'', amount:0, card_id: cardId}).select().single();
+  async function addCardItem(cardId, entryType){
+    const {data, error} = await sb.schema('moneysorted').from('card_items').insert({name:entryType === 'payment' ? 'Card payment' : '', amount:0, card_id: cardId, entry_type:entryType, entry_date:localDateISO(new Date())}).select().single();
     if(error){ showDataError(error); return; }
     cardItems.push(data);
     renderCardItemsBody({id: cardId});
@@ -671,30 +699,47 @@
           <input type="text" class="card-name-input" value="${escapeHtml(card.name)}" data-id="${card.id}">
           <button class="rm-card" title="Remove card" data-id="${card.id}">✕</button>
         </div>
-        <p class="hint">What's outstanding right now.</p>
+        <p class="hint">Keep the starting balance as it was; add purchases and payments below. Figures are entered by you.</p>
+        <div class="card-summary">
+          <div class="card-balance-wrap">
+            <div class="card-balance-label">Outstanding balance</div>
+            <div class="card-balance" data-card-total="${card.id}">£0.00</div>
+          </div>
+          <div class="card-field"><label for="card-limit-${card.id}">Credit limit</label>
+            <input id="card-limit-${card.id}" type="number" min="0" step="0.01" value="${card.credit_limit ?? ''}" data-card-id="${card.id}" data-card-field="credit_limit" placeholder="Not set"></div>
+          <div><div class="card-stat-label">Available credit</div><div class="card-available" data-card-available="${card.id}">—</div></div>
+          <div class="card-field"><label for="card-minimum-${card.id}">Minimum payment</label>
+            <input id="card-minimum-${card.id}" type="number" min="0" step="0.01" value="${card.minimum_payment ?? ''}" data-card-id="${card.id}" data-card-field="minimum_payment" placeholder="Not set"></div>
+          <div class="card-field"><label for="card-due-${card.id}">Next payment due</label>
+            <input id="card-due-${card.id}" type="date" value="${card.payment_due_date || ''}" data-card-id="${card.id}" data-card-field="payment_due_date"></div>
+        </div>
         <table>
-          <thead><tr><th>Item</th><th class="amount">Amount</th><th class="rm"></th></tr></thead>
+          <thead><tr><th>Balance entries</th><th class="amount">Amount</th><th class="rm"></th></tr></thead>
           <tbody data-card-body="${card.id}"></tbody>
         </table>
-        <button class="add-row" data-add-item="${card.id}">+ Add an item</button>
-        <div class="totals">
-          <div class="card-balance-label">Outstanding balance</div>
-          <div class="card-balance" data-card-total="${card.id}">£0.00</div>
+        <div class="card-actions">
+          <button class="add-row" data-add-item="${card.id}" data-entry-type="purchase">+ Add a purchase</button>
+          <button class="add-row" data-add-item="${card.id}" data-entry-type="payment">+ Record a payment</button>
         </div>`;
       container.appendChild(panel);
       renderCardItemsBody(card);
       recalcCardTotal(card.id);
     });
 
-    container.querySelectorAll('.card-name-input').forEach(inp => {
+    container.querySelectorAll('.card-name-input, [data-card-field]').forEach(inp => {
       inp.addEventListener('input', (e) => {
-        const id = e.target.dataset.id;
+        const id = e.target.dataset.id || e.target.dataset.cardId;
         const card = creditCards.find(c => c.id === id);
         if(!card) return;
-        card.name = e.target.value;
+        const field = e.target.dataset.cardField || 'name';
+        card[field] = field === 'credit_limit' || field === 'minimum_payment' ?
+          (e.target.value === '' ? null : Math.max(0, Number(e.target.value) || 0)) :
+          field === 'payment_due_date' ? (e.target.value || null) : e.target.value;
+        if((field === 'credit_limit' || field === 'minimum_payment') && Number(e.target.value) < 0) e.target.value = '0';
+        if(field === 'credit_limit') recalcCardTotal(id);
         clearTimeout(rowSaveTimers['card_'+id]);
         rowSaveTimers['card_'+id] = setTimeout(async () => {
-          const {error} = await sb.schema('moneysorted').from('credit_cards').update({name: card.name}).eq('id', id);
+          const {error} = await sb.schema('moneysorted').from('credit_cards').update({name: card.name, credit_limit: card.credit_limit, minimum_payment: card.minimum_payment, payment_due_date: card.payment_due_date}).eq('id', id);
           if(error) showDataError(error);
         }, 600);
       });
@@ -711,7 +756,7 @@
       });
     });
     container.querySelectorAll('[data-add-item]').forEach(btn => {
-      btn.addEventListener('click', () => addCardItem(btn.dataset.addItem));
+      btn.addEventListener('click', () => addCardItem(btn.dataset.addItem, btn.dataset.entryType));
     });
   }
   document.getElementById('addCreditCard').addEventListener('click', async () => {
