@@ -136,7 +136,7 @@
       el('syncBtn').onclick=()=>run(async()=>{await call('bank','sync');});
       el('disconnectBtn').onclick=()=>run(async()=>{await call('bank','disconnect');});
       try{await refresh();if(new URLSearchParams(location.search).get('checkout')==='success')
-        say('Checkout returned. Waiting for the signed Stripe webhook to confirm access.');}
+        say('Checkout returned. Subscription status checked with Stripe.');}
       catch(error){say(error.message,true);el('billingStatus').textContent='Unavailable';
         el('bankStatus').textContent='Unavailable';}
     })();
