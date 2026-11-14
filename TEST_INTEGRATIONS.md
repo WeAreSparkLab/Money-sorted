@@ -25,7 +25,7 @@ This branch contains **test-only** Stripe Checkout and Plaid Sandbox endpoints. 
    | `TEST_APP_ORIGIN` | Exact HTTPS preview origin, with no trailing slash |
 
    Never paste any of these values into `index.html`, the test page, source control or a chat. The existing Supabase publishable key is public by design. The encryption key must be backed up securely: losing it makes stored Plaid tokens unreadable.
-5. Use a disposable Supabase account in the shared project to sign into the test page. Complete Stripe Checkout with a [test card](https://docs.stripe.com/testing), confirm the signed webhook changes entitlement, then connect a Plaid Sandbox current account. Test refresh, transaction changes, cancellation, failed payment, disconnect and a second user's isolation. Never use the owner's real financial records as test data.
+5. Use the previously confirmed disposable Supabase account in the shared project to sign into the test page. Complete Stripe Checkout with a [test card](https://docs.stripe.com/testing), confirm the signed webhook changes entitlement, then connect a Plaid Sandbox current account. Test refresh, transaction changes, cancellation, failed payment, disconnect and a second user's isolation. Never use the owner's real financial records as test data.
 
 ## Known gaps before public release
 
