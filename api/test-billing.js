@@ -3,6 +3,32 @@
 const {db, errorResponse, method, requireTestConfig, send, stripe, userFromRequest} =
   require('../server/test-integrations');
 
+async function refreshSubscription(user, record) {
+  if (!record?.stripe_customer_id) return record;
+  const subscriptions = await stripe('/subscriptions?' + new URLSearchParams({
+    customer: record.stripe_customer_id, status: 'all', limit: '100',
+  }), {}, 'GET');
+  const subscription = subscriptions.data?.find(sub =>
+    sub.metadata?.supabase_user_id === user.id &&
+    sub.items?.data?.some(item => item.price?.id === process.env.STRIPE_TEST_PRICE_ID));
+  const periodEnd = subscription?.items?.data?.[0]?.current_period_end ||
+    subscription?.current_period_end;
+  const updated = {
+    user_id: user.id,
+    stripe_customer_id: record.stripe_customer_id,
+    stripe_subscription_id: subscription?.id || null,
+    status: subscription?.status || 'none',
+    current_period_end: periodEnd ? new Date(periodEnd * 1000).toISOString() : null,
+    cancel_at_period_end: !!subscription?.cancel_at_period_end,
+    updated_at: new Date().toISOString(),
+  };
+  await db('billing_subscriptions', {
+    method: 'POST', query: 'on_conflict=user_id', data: updated,
+    preference: 'resolution=merge-duplicates,return=minimal',
+  });
+  return updated;
+}
+
 module.exports = async function handler(req, res) {
   if (!method(req, res)) return;
   try {
@@ -12,8 +38,9 @@ module.exports = async function handler(req, res) {
     const rows = await db('billing_subscriptions', {
       query: new URLSearchParams({user_id: 'eq.' + user.id, select: '*'}).toString(),
     });
-    const record = rows?.[0];
+    let record = rows?.[0];
     if (action === 'status') {
+      record = await refreshSubscription(user, record);
       return send(res, 200, {
         status: record?.status || 'none',
         currentPeriodEnd: record?.current_period_end || null,
