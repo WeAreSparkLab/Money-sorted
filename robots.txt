@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://money-sorted.wearesparklab.com/sitemap.txt
