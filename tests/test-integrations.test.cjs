@@ -11,6 +11,7 @@ const {
 const configKeys = [
   'STRIPE_SECRET_KEY', 'PLAID_ENV', 'PLAID_CLIENT_ID', 'PLAID_SECRET',
   'SUPABASE_SERVICE_ROLE_KEY', 'BANK_TOKEN_ENCRYPTION_KEY', 'VERCEL_ENV',
+  'VERCEL_GIT_COMMIT_REF',
   'TEST_SUPABASE_URL', 'TEST_SUPABASE_PUBLISHABLE_KEY',
 ];
 function withConfig(run) {
@@ -23,6 +24,7 @@ function withConfig(run) {
     process.env.SUPABASE_SERVICE_ROLE_KEY = 'example';
     process.env.BANK_TOKEN_ENCRYPTION_KEY = crypto.randomBytes(32).toString('base64');
     process.env.VERCEL_ENV = 'preview';
+    process.env.VERCEL_GIT_COMMIT_REF = 'linked-debit-accounts';
     process.env.TEST_SUPABASE_URL = 'https://exampleabc.supabase.co';
     process.env.TEST_SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_example';
     run();
@@ -43,6 +45,9 @@ test('test integrations reject live Stripe and Plaid configuration', () => withC
   process.env.PLAID_ENV = 'sandbox';
   process.env.VERCEL_ENV = 'production';
   assert.throws(requireTestConfig, /disabled in production/);
+  process.env.VERCEL_ENV = 'preview';
+  process.env.VERCEL_GIT_COMMIT_REF = 'main';
+  assert.throws(requireTestConfig, /linked-debit preview/);
 }));
 
 test('bank token encryption round trips and rejects tampering', () => withConfig(() => {
@@ -86,6 +91,7 @@ test('bank and billing endpoints reject requests without a signed-in user', asyn
     process.env.SUPABASE_SERVICE_ROLE_KEY = 'example';
     process.env.BANK_TOKEN_ENCRYPTION_KEY = crypto.randomBytes(32).toString('base64');
     process.env.VERCEL_ENV = 'preview';
+    process.env.VERCEL_GIT_COMMIT_REF = 'linked-debit-accounts';
     process.env.TEST_SUPABASE_URL = 'https://exampleabc.supabase.co';
     process.env.TEST_SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_example';
     for (const handler of [require('../api/test-billing'), require('../api/test-bank')]) {
@@ -113,6 +119,7 @@ test('Stripe webhook endpoint rejects an unsigned payload', async () => {
     process.env.SUPABASE_SERVICE_ROLE_KEY = 'example';
     process.env.BANK_TOKEN_ENCRYPTION_KEY = crypto.randomBytes(32).toString('base64');
     process.env.VERCEL_ENV = 'preview';
+    process.env.VERCEL_GIT_COMMIT_REF = 'linked-debit-accounts';
     process.env.TEST_SUPABASE_URL = 'https://exampleabc.supabase.co';
     process.env.TEST_SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_example';
     process.env.STRIPE_TEST_WEBHOOK_SECRET = 'whsec_example';
