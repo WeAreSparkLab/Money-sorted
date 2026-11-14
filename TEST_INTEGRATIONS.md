@@ -5,14 +5,14 @@ This branch contains **test-only** Stripe Checkout and Plaid Sandbox endpoints. 
 ## Before any connected preview
 
 1. The four new tables were added to the existing `sparklab-apps` project on 14 November 2026 after owner approval using `migrations/20261114_linked_debit_accounts.sql`. Existing financial rows were not modified. The new tables have RLS; browser roles have no write access, and `bank_connections` (which stores encrypted Plaid tokens) has no browser read access. Use a disposable test login within this shared project. Confirm two-user isolation before any connected preview.
-2. Create a Stripe account, then a **test-mode** product and monthly recurring price. Do not choose a real customer price yet. Configure a test webhook endpoint at `https://<preview-host>/api/test-stripe-webhook` for `customer.subscription.created`, `customer.subscription.updated` and `customer.subscription.deleted`. Enable cancellation in Stripe Customer Portal.
+2. The existing **SparkQuotes Stripe account**, in **test mode**, now has product `prod_VcsSGa5Sf9VtFI` and monthly recurring price `price_1UbchfIKcVHKjjafJpdLli5Z` at a **£1 test placeholder**. This is not the public price or a decision to bill Money, Sorted through SparkQuotes in production. Configure a test webhook endpoint at `https://<preview-host>/api/test-stripe-webhook` for `customer.subscription.created`, `customer.subscription.updated` and `customer.subscription.deleted`. Enable cancellation in Stripe Customer Portal.
 3. In Plaid Dashboard, use **Sandbox** credentials. Configure the test redirect URI for the exact preview origin if the UK OAuth flow requires it. Use Plaid's test institution and fake credentials; do not connect a real account or copy live financial records.
 4. Set the following variables only for the intended Vercel **Preview** environment, in Vercel's secret store:
 
    | Variable | Value |
    | --- | --- |
    | `STRIPE_SECRET_KEY` | Stripe secret beginning `sk_test_` |
-   | `STRIPE_TEST_PRICE_ID` | Test recurring Price ID |
+   | `STRIPE_TEST_PRICE_ID` | `price_1UbchfIKcVHKjjafJpdLli5Z` (test placeholder) |
    | `STRIPE_TEST_WEBHOOK_SECRET` | Test endpoint signing secret |
    | `PLAID_ENV` | `sandbox` |
    | `PLAID_CLIENT_ID` | Plaid client ID |
@@ -25,6 +25,7 @@ This branch contains **test-only** Stripe Checkout and Plaid Sandbox endpoints. 
    | `TEST_APP_ORIGIN` | Exact HTTPS preview origin, with no trailing slash |
 
    Never paste any of these values into `index.html`, the test page, source control or a chat. The existing Supabase publishable key is public by design. The encryption key must be backed up securely: losing it makes stored Plaid tokens unreadable.
+   Scope secrets to the `linked-debit-accounts` Preview branch only. The server also refuses to run these integrations on another Vercel preview branch or on production. The current Vercel preview is protected by Vercel Authentication; verify that protection remains enabled before adding the shared project's service-role key.
 5. Use the previously confirmed disposable Supabase account in the shared project to sign into the test page. Complete Stripe Checkout with a [test card](https://docs.stripe.com/testing), confirm the signed webhook changes entitlement, then connect a Plaid Sandbox current account. Test refresh, transaction changes, cancellation, failed payment, disconnect and a second user's isolation. Never use the owner's real financial records as test data.
 
 ## Known gaps before public release
