@@ -6,6 +6,10 @@ const schema = 'moneysorted';
 
 function publicTestConfig() {
   if (process.env.VERCEL_ENV === 'production') throw new Error('Test integrations are disabled in production');
+  if (process.env.VERCEL_ENV === 'preview' &&
+      process.env.VERCEL_GIT_COMMIT_REF !== 'linked-debit-accounts') {
+    throw new Error('Test integrations are limited to the linked-debit preview');
+  }
   const url = process.env.TEST_SUPABASE_URL;
   const key = process.env.TEST_SUPABASE_PUBLISHABLE_KEY;
   if (!/^https:\/\/[a-z0-9]+\.supabase\.co$/.test(url || '') || !key?.startsWith('sb_publishable_')) {
