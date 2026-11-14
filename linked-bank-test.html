@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Linked bank test · Money, Sorted</title>
+  <style>
+    :root{color-scheme:dark;background:#151b1a;color:#eef3ef;font:16px/1.5 system-ui,sans-serif}
+    body{max-width:760px;margin:0 auto;padding:24px}
+    a{color:#a7cbbb} .panel{background:#1d2523;border:1px solid #3b4944;border-radius:8px;padding:20px;margin:18px 0}
+    h1,h2{font-family:Georgia,serif} h1{margin-bottom:0} h2{margin-top:0}
+    p{color:#c7d5cf} input{background:#17201d;color:#eef3ef;border:1px solid #668174;border-radius:5px;padding:9px;margin:4px 0 8px;font:inherit}
+    button{background:#bed7c7;color:#10201a;border:0;border-radius:5px;padding:10px 14px;margin:4px 8px 4px 0;cursor:pointer;font:inherit}
+    button:disabled{opacity:.55;cursor:wait} button:focus-visible,a:focus-visible{outline:3px solid #ffae69;outline-offset:3px}
+    .muted{color:#a2b9ad}.error{color:#ffad9d}.hidden{display:none}
+    ul{padding-left:20px} li{padding:5px 0;border-bottom:1px solid #3b4944}
+  </style>
+</head>
+<body>
+  <a href="/">← Money, Sorted</a>
+  <h1>Linked bank test</h1>
+  <p>This is a development preview using a disposable test login, Stripe test payments and Plaid Sandbox accounts. It does not take real payments or connect a real bank. The manual tracker remains free.</p>
+  <div id="message" role="status" aria-live="polite"></div>
+  <section class="panel" aria-labelledby="loginTitle">
+    <h2 id="loginTitle">Test login</h2>
+    <p id="loginStatus">Checking…</p>
+    <label>Email <input id="email" type="email" autocomplete="email"></label><br>
+    <label>Password <input id="password" type="password" autocomplete="current-password"></label><br>
+    <button id="loginBtn">Sign in</button>
+    <button id="logoutBtn">Sign out</button>
+  </section>
+  <section class="panel" aria-labelledby="billingTitle">
+    <h2 id="billingTitle">Test subscription</h2>
+    <p id="billingStatus">Checking…</p>
+    <button id="refreshBtn">Refresh test status</button>
+    <button id="subscribeBtn" disabled>Try test checkout</button>
+    <button id="manageBtn" disabled>Manage test subscription</button>
+    <p class="muted">No customer price is set for launch. Plaid's UK production quote is still required.</p>
+  </section>
+  <section class="panel" aria-labelledby="bankTitle">
+    <h2 id="bankTitle">Sandbox current account</h2>
+    <p id="bankStatus">Checking…</p>
+    <button id="connectBtn" disabled>Connect a Sandbox account</button>
+    <button id="syncBtn" disabled>Refresh test data</button>
+    <button id="disconnectBtn" disabled>Disconnect</button>
+    <ul id="accounts"></ul>
+    <h3>Recent test transactions</h3>
+    <ul id="transactions"></ul>
+  </section>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
+  <script>
+    (async function(){
+      const el=id=>document.getElementById(id);
+      const message=el('message');
+      function say(text,error=false){message.textContent=text;message.className=error?'error':'';}
+      let configResponse;
+      try{configResponse=await fetch('/api/test-config',{cache:'no-store'});}
+      catch{say('Could not reach the test service. Check your connection and try again.',true);return;}
+      if(!configResponse.ok){say('The test connection is not configured yet.',true);return;}
+      const config=await configResponse.json();
+      const sb=supabase.createClient(config.supabaseUrl,config.supabasePublishableKey);
+      async function call(area,action,payload={}){
+        const {data}=await sb.auth.getSession();
+        if(!data.session) throw new Error('Sign in with a disposable test account first.');
+        const response=await fetch('/api/test-'+area+'?action='+encodeURIComponent(action),{
+          method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+data.session.access_token},
+          body:JSON.stringify(payload),cache:'no-store'
+        });
+        const result=await response.json();
+        if(!response.ok) throw new Error(result.error||'Request failed');
+        return result;
+      }
+      function list(id,rows,format){
+        const target=el(id);target.replaceChildren();
+        for(const row of rows){const li=document.createElement('li');li.textContent=format(row);target.appendChild(li);}
+      }
+      function signedOut(){
+        el('loginStatus').textContent='Sign in with a disposable test account.';
+        el('billingStatus').textContent='Sign in first.';
+        el('bankStatus').textContent='Sign in first.';
+        for(const id of ['subscribeBtn','manageBtn','connectBtn','syncBtn','disconnectBtn'])
+          el(id).disabled=true;
+        el('accounts').replaceChildren();el('transactions').replaceChildren();
+      }
+      async function refresh(){
+        const {data:sessionData}=await sb.auth.getSession();
+        if(!sessionData.session){signedOut();return;}
+        el('loginStatus').textContent='Signed in as '+sessionData.session.user.email;
+        const [billing,bank]=await Promise.all([
+          call('billing','status'),call('bank','status')
+        ]);
+        const active=['active','trialing'].includes(billing.status);
+        el('billingStatus').textContent='Stripe test status: '+billing.status+
+          (billing.currentPeriodEnd?' · period ends '+new Date(billing.currentPeriodEnd).toLocaleDateString('en-GB'):'');
+        el('subscribeBtn').disabled=active;
+        el('manageBtn').disabled=billing.status==='none';
+        el('bankStatus').textContent=bank.linked
+          ?'Sandbox linked · last updated '+(bank.lastSyncedAt?new Date(bank.lastSyncedAt).toLocaleString('en-GB'):'not yet')
+          :'No Sandbox account linked.';
+        el('connectBtn').disabled=!active||bank.linked;
+        el('syncBtn').disabled=!active||!bank.linked;
+        el('disconnectBtn').disabled=!bank.linked;
+        list('accounts',bank.accounts,a=>a.name+(a.mask?' · ••••'+a.mask:'')+
+          ' · '+(a.currency||'GBP')+' '+(a.current_balance??'unknown'));
+        list('transactions',bank.transactions,t=>t.transaction_date+' · '+t.name+' · '+
+          (Number(t.amount)>=0?'Out £':'In £')+Math.abs(Number(t.amount)).toFixed(2)+
+          (t.pending?' · pending':''));
+      }
+      async function run(work){
+        say('Working…');
+        try{await work();await refresh();say('Done.');}
+        catch(error){say(error.message,true);}
+      }
+      el('subscribeBtn').onclick=()=>run(async()=>{location.href=(await call('billing','checkout')).url;});
+      el('refreshBtn').onclick=()=>run(async()=>{});
+      el('loginBtn').onclick=()=>run(async()=>{
+        const {error}=await sb.auth.signInWithPassword({
+          email:el('email').value.trim(),password:el('password').value
+        });
+        if(error)throw error;el('password').value='';
+      });
+      el('logoutBtn').onclick=()=>run(async()=>{await sb.auth.signOut();});
+      el('manageBtn').onclick=()=>run(async()=>{location.href=(await call('billing','portal')).url;});
+      el('connectBtn').onclick=()=>run(async()=>{
+        const {linkToken}=await call('bank','link-token');
+        if(!window.Plaid) throw new Error('Plaid Link could not load.');
+        const link=Plaid.create({
+          token:linkToken,
+          onSuccess:async publicToken=>{await run(async()=>{await call('bank','exchange',{publicToken});});},
+          onExit:error=>{if(error)say('Sandbox connection was not completed.',true);}
+        });
+        link.open();
+      });
+      el('syncBtn').onclick=()=>run(async()=>{await call('bank','sync');});
+      el('disconnectBtn').onclick=()=>run(async()=>{await call('bank','disconnect');});
+      try{await refresh();if(new URLSearchParams(location.search).get('checkout')==='success')
+        say('Checkout returned. Subscription status checked with Stripe.');}
+      catch(error){say(error.message,true);el('billingStatus').textContent='Unavailable';
+        el('bankStatus').textContent='Unavailable';}
+    })();
+  </script>
+</body>
+</html>
