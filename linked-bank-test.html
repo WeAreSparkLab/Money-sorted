@@ -28,7 +28,6 @@
     <label>Email <input id="email" type="email" autocomplete="email"></label><br>
     <label>Password <input id="password" type="password" autocomplete="current-password"></label><br>
     <button id="loginBtn">Sign in</button>
-    <button id="signupBtn">Create test account</button>
     <button id="logoutBtn">Sign out</button>
   </section>
   <section class="panel" aria-labelledby="billingTitle">
@@ -118,12 +117,6 @@
       el('refreshBtn').onclick=()=>run(async()=>{});
       el('loginBtn').onclick=()=>run(async()=>{
         const {error}=await sb.auth.signInWithPassword({
-          email:el('email').value.trim(),password:el('password').value
-        });
-        if(error)throw error;el('password').value='';
-      });
-      el('signupBtn').onclick=()=>run(async()=>{
-        const {error}=await sb.auth.signUp({
           email:el('email').value.trim(),password:el('password').value
         });
         if(error)throw error;el('password').value='';
