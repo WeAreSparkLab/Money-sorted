@@ -251,3 +251,144 @@ test('expired subscription revokes Sandbox Item and hides cached bank data', asy
   }
 });
 
+test('test data cleanup cancels billing, revokes Plaid and deletes only the signed-in user’s rows', async () => {
+  const before = Object.fromEntries(configKeys.map(key => [key, process.env[key]]));
+  const originalFetch = global.fetch;
+  const calls = [];
+  try {
+    Object.assign(process.env, {
+      STRIPE_SECRET_KEY: 'sk_test_example', PLAID_ENV: 'sandbox',
+      PLAID_CLIENT_ID: 'example', PLAID_SECRET: 'example',
+      SUPABASE_SERVICE_ROLE_KEY: 'example',
+      BANK_TOKEN_ENCRYPTION_KEY: crypto.randomBytes(32).toString('base64'),
+      VERCEL_ENV: 'preview', VERCEL_GIT_COMMIT_REF: 'linked-debit-accounts',
+      TEST_SUPABASE_URL: 'https://exampleabc.supabase.co',
+      TEST_SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_example',
+      STRIPE_TEST_PRICE_ID: 'price_test',
+    });
+    const sealed = encryptToken('access-sandbox-cleanup');
+    global.fetch = async (url, options = {}) => {
+      calls.push([url, options.method || 'GET']);
+      if (url.endsWith('/auth/v1/user')) return {ok: true, json: async () => ({id: 'user-1'})};
+      if (url.includes('/billing_subscriptions') && options.method !== 'DELETE')
+        return {ok: true, text: async () => JSON.stringify([{stripe_subscription_id: 'sub_test'}])};
+      if (url.includes('/bank_connections') && options.method !== 'DELETE')
+        return {ok: true, text: async () => JSON.stringify([{id: 'connection-1', ...sealed}])};
+      if (url.endsWith('/subscriptions/sub_test') && options.method === 'GET')
+        return {ok: true, json: async () => ({livemode: false, status: 'active',
+          metadata: {supabase_user_id: 'user-1'},
+          items: {data: [{price: {id: 'price_test'}}]}})};
+      if (url.endsWith('/subscriptions/sub_test') && options.method === 'DELETE')
+        return {ok: true, json: async () => ({status: 'canceled'})};
+      if (url.endsWith('/item/remove')) return {ok: true, json: async () => ({})};
+      if (url.includes('/bank_connections') || url.includes('/billing_subscriptions'))
+        return {ok: true, text: async () => ''};
+      throw new Error('Unexpected request');
+    };
+    const res = fakeResponse();
+    await require('../api/test-delete-data')({method: 'POST', headers: {authorization: 'Bearer sample'}}, res);
+    assert.equal(res.code, 200);
+    assert.deepEqual(res.payload, {cleaned: true});
+    const sequence = calls.filter(([url, method]) => url.includes('/subscriptions/sub_test') && method === 'DELETE' ||
+      url.includes('/item/remove') || method === 'DELETE' &&
+      (url.includes('/bank_connections') || url.includes('/billing_subscriptions')));
+    assert.deepEqual(sequence.map(([url]) => url.includes('/subscriptions/') ? 'cancel' :
+      url.includes('/item/remove') ? 'revoke' :
+      url.includes('/bank_connections') ? 'delete-bank' : 'delete-billing'),
+    ['cancel', 'revoke', 'delete-bank', 'delete-billing']);
+    assert.equal(calls.filter(([url]) => url.includes('/bank_connections') ||
+      url.includes('/billing_subscriptions')).every(([url]) => url.includes('user_id=eq.user-1')), true);
+  } finally {
+    global.fetch = originalFetch;
+    for (const key of configKeys) {
+      if (before[key] === undefined) delete process.env[key];
+      else process.env[key] = before[key];
+    }
+  }
+});
+
+test('test data cleanup stops when Stripe ownership cannot be verified', async () => {
+  const before = Object.fromEntries(configKeys.map(key => [key, process.env[key]]));
+  const originalFetch = global.fetch;
+  const calls = [];
+  try {
+    Object.assign(process.env, {
+      STRIPE_SECRET_KEY: 'sk_test_example', PLAID_ENV: 'sandbox',
+      PLAID_CLIENT_ID: 'example', PLAID_SECRET: 'example',
+      SUPABASE_SERVICE_ROLE_KEY: 'example',
+      BANK_TOKEN_ENCRYPTION_KEY: crypto.randomBytes(32).toString('base64'),
+      VERCEL_ENV: 'preview', VERCEL_GIT_COMMIT_REF: 'linked-debit-accounts',
+      TEST_SUPABASE_URL: 'https://exampleabc.supabase.co',
+      TEST_SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_example',
+      STRIPE_TEST_PRICE_ID: 'price_test',
+    });
+    global.fetch = async (url, options = {}) => {
+      calls.push([url, options.method || 'GET']);
+      if (url.endsWith('/auth/v1/user')) return {ok: true, json: async () => ({id: 'user-1'})};
+      if (url.includes('/billing_subscriptions')) return {ok: true,
+        text: async () => JSON.stringify([{stripe_subscription_id: 'sub_other'}])};
+      if (url.includes('/bank_connections')) return {ok: true, text: async () => '[]'};
+      if (url.endsWith('/subscriptions/sub_other')) return {ok: true,
+        json: async () => ({livemode: false, status: 'active',
+          metadata: {supabase_user_id: 'user-2'},
+          items: {data: [{price: {id: 'price_test'}}]}})};
+      throw new Error('Unexpected request');
+    };
+    const res = fakeResponse();
+    await require('../api/test-delete-data')({method: 'POST', headers: {authorization: 'Bearer sample'}}, res);
+    assert.equal(res.code, 500);
+    assert.equal(calls.some(([, method]) => method === 'DELETE'), false);
+  } finally {
+    global.fetch = originalFetch;
+    for (const key of configKeys) {
+      if (before[key] === undefined) delete process.env[key];
+      else process.env[key] = before[key];
+    }
+  }
+});
+
+test('a delayed cancellation webhook does not recreate deleted billing data', async () => {
+  const keys = [...configKeys, 'STRIPE_TEST_WEBHOOK_SECRET'];
+  const before = Object.fromEntries(keys.map(key => [key, process.env[key]]));
+  const originalFetch = global.fetch;
+  const calls = [];
+  try {
+    Object.assign(process.env, {
+      STRIPE_SECRET_KEY: 'sk_test_example', PLAID_ENV: 'sandbox',
+      PLAID_CLIENT_ID: 'example', PLAID_SECRET: 'example',
+      SUPABASE_SERVICE_ROLE_KEY: 'example',
+      BANK_TOKEN_ENCRYPTION_KEY: crypto.randomBytes(32).toString('base64'),
+      VERCEL_ENV: 'preview', VERCEL_GIT_COMMIT_REF: 'linked-debit-accounts',
+      TEST_SUPABASE_URL: 'https://exampleabc.supabase.co',
+      TEST_SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_example',
+      STRIPE_TEST_PRICE_ID: 'price_test', STRIPE_TEST_WEBHOOK_SECRET: 'whsec_example',
+    });
+    const userId = '11111111-1111-4111-8111-111111111111';
+    global.fetch = async (url, options = {}) => {
+      calls.push([url, options.method || 'GET']);
+      if (url.endsWith('/subscriptions/sub_canceled')) return {ok: true,
+        json: async () => ({livemode: false, status: 'canceled', customer: 'cus_test',
+          metadata: {supabase_user_id: userId},
+          items: {data: [{price: {id: 'price_test'}}]}})};
+      throw new Error('Unexpected storage request');
+    };
+    const raw = Buffer.from(JSON.stringify({livemode: false,
+      type: 'customer.subscription.deleted', data: {object: {id: 'sub_canceled'}}}));
+    const time = Math.floor(Date.now() / 1000);
+    const signature = crypto.createHmac('sha256', 'whsec_example')
+      .update(String(time) + '.').update(raw).digest('hex');
+    const req = Readable.from([raw]);
+    req.method = 'POST';
+    req.headers = {'stripe-signature': 't=' + time + ',v1=' + signature};
+    const res = fakeResponse();
+    await require('../api/test-stripe-webhook')(req, res);
+    assert.equal(res.code, 200);
+    assert.equal(calls.some(([url]) => url.includes('/billing_subscriptions')), false);
+  } finally {
+    global.fetch = originalFetch;
+    for (const key of keys) {
+      if (before[key] === undefined) delete process.env[key];
+      else process.env[key] = before[key];
+    }
+  }
+});
