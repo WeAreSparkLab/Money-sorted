@@ -1,7 +1,7 @@
 'use strict';
 
 const {
-  body, db, decryptToken, encryptToken, errorResponse, method, plaid,
+  body, db, decryptToken, encryptToken, errorResponse, isOwnTestSubscription, method, plaid,
   requireTestConfig, send, stripe, userFromRequest,
 } = require('../server/test-integrations');
 
@@ -28,7 +28,8 @@ async function subscriptionActive(userId) {
   if (!row?.stripe_subscription_id) return false;
   const liveState = await stripe('/subscriptions/' +
     encodeURIComponent(row.stripe_subscription_id), {}, 'GET');
-  return ['active', 'trialing'].includes(liveState.status);
+  return isOwnTestSubscription(liveState, userId) &&
+    ['active', 'trialing'].includes(liveState.status);
 }
 
 async function ownAccounts(userId) {
@@ -227,3 +228,4 @@ module.exports = async function handler(req, res) {
     return errorResponse(res, error);
   }
 };
+
