@@ -50,6 +50,8 @@ This branch contains **test-only** Stripe Checkout and Plaid Sandbox endpoints. 
 
 ## Plaid UK quote request
 
+Submitted through Plaid's Talk to Sales form on 15 November 2026 using the SparkLab support address. Plaid displayed “Your message has been sent”; the written quote is pending. No paid plan or production access was accepted.
+
 > We are building Money, Sorted, a UK personal finance web app. Users would connect one UK current account, starting with Lloyds, to view their balance and transactions. We need account-data access only; we will not initiate payments. Please quote UK production access for Transactions and cached account balances, plus optional Balance calls. Please specify any monthly or annual minimum, per-active-Item/connection charge, per-call Balance and refresh charges, included usage, whether failed or expired Items remain billable, Lloyds current-account coverage, consent renewal requirements, data retention terms and the steps for moving from Sandbox to production. We expect to start with a small number of users and need to know the minimum cost before setting a customer subscription price.
 
 Do not accept a paid Plaid contract until its exact terms and projected break-even subscriber count have been reviewed.
