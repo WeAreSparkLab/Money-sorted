@@ -48,6 +48,8 @@ This branch contains **test-only** Stripe Checkout and Plaid Sandbox endpoints. 
 - The `/api/test-bank?action=sync` endpoint reads Plaid's cached account balance from `/accounts/get`. It does not promise an instant balance and does not call the potentially charged real-time Balance endpoint.
 - On the test branch, an inactive subscription revokes the Plaid Item and removes cached bank data when the user next opens or refreshes the test page. Production still needs scheduled expiry cleanup, retry handling when Plaid revocation fails, deletion integration, provider webhook validation, account export and a quote-backed connection/refresh cap.
 
+- Bank access, billing status reconciliation and the signed Stripe webhook now require the subscription to belong to the signed-in user, be in test mode and contain the Money, Sorted test price. This guards against granting bank access from another SparkQuotes product.
+
 ## Plaid UK quote request
 
 Submitted through Plaid's Talk to Sales form on 15 November 2026 using the SparkLab support address. Plaid displayed “Your message has been sent”; the written quote is pending. No paid plan or production access was accepted.
