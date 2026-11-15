@@ -150,6 +150,13 @@ function verifyStripeSignature(raw, header, secret, now = Date.now()) {
   });
 }
 
+function isOwnTestSubscription(subscription, userId) {
+  return subscription?.livemode === false &&
+    subscription.metadata?.supabase_user_id === userId &&
+    !!process.env.STRIPE_TEST_PRICE_ID &&
+    subscription.items?.data?.some(item => item.price?.id === process.env.STRIPE_TEST_PRICE_ID);
+}
+
 function errorResponse(res, error) {
   if (error.status === 401) return send(res, 401, {error: error.message});
   // Provider responses and internal errors may include sensitive details.
@@ -159,5 +166,7 @@ function errorResponse(res, error) {
 
 module.exports = {
   body, db, decryptToken, encryptToken, errorResponse, method, plaid,
-  publicTestConfig, requireTestConfig, send, stripe, userFromRequest, verifyStripeSignature,
+  isOwnTestSubscription, publicTestConfig, requireTestConfig, send, stripe,
+  userFromRequest, verifyStripeSignature,
 };
+
