@@ -93,7 +93,8 @@
         ]);
         const active=['active','trialing'].includes(billing.status);
         el('billingStatus').textContent='Stripe test status: '+billing.status+
-          (billing.currentPeriodEnd?' · period ends '+new Date(billing.currentPeriodEnd).toLocaleDateString('en-GB'):'');
+          (billing.currentPeriodEnd?' · period ends '+new Date(billing.currentPeriodEnd).toLocaleDateString('en-GB'):'')+
+          (billing.cancelAtPeriodEnd?' · cancellation scheduled at period end':'');
         el('subscribeBtn').disabled=active;
         el('manageBtn').disabled=billing.status==='none';
         el('bankStatus').textContent=bank.linked
