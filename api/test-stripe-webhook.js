@@ -1,6 +1,6 @@
 'use strict';
 
-const {db, errorResponse, method, requireTestConfig, send, stripe, verifyStripeSignature} =
+const {db, errorResponse, isOwnTestSubscription, method, requireTestConfig, send, stripe, verifyStripeSignature} =
   require('../server/test-integrations');
 
 async function readRaw(req) {
@@ -13,6 +13,7 @@ async function syncSubscription(id) {
   const subscription = await stripe('/subscriptions/' + encodeURIComponent(id), {}, 'GET');
   const userId = subscription.metadata?.supabase_user_id;
   if (!/^[0-9a-f]{8}-[0-9a-f-]{27,}$/.test(userId || '')) throw new Error('Unmapped test subscription');
+  if (!isOwnTestSubscription(subscription, userId)) return;
   const periodEnd = subscription.items?.data?.[0]?.current_period_end ||
     subscription.current_period_end;
   await db('billing_subscriptions', {
@@ -53,3 +54,4 @@ module.exports = async function handler(req, res) {
   }
 };
 module.exports.config = {api: {bodyParser: false}};
+
