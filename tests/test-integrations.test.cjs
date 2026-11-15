@@ -186,3 +186,51 @@ test('billing status reconciles a paid test subscription without webhook deliver
     }
   }
 });
+
+test('expired subscription revokes Sandbox Item and hides cached bank data', async () => {
+  const before = Object.fromEntries(configKeys.map(key => [key, process.env[key]]));
+  const originalFetch = global.fetch;
+  const calls = [];
+  try {
+    Object.assign(process.env, {
+      STRIPE_SECRET_KEY: 'sk_test_example', PLAID_ENV: 'sandbox',
+      PLAID_CLIENT_ID: 'example', PLAID_SECRET: 'example',
+      SUPABASE_SERVICE_ROLE_KEY: 'example',
+      BANK_TOKEN_ENCRYPTION_KEY: crypto.randomBytes(32).toString('base64'),
+      VERCEL_ENV: 'preview', VERCEL_GIT_COMMIT_REF: 'linked-debit-accounts',
+      TEST_SUPABASE_URL: 'https://exampleabc.supabase.co',
+      TEST_SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_example',
+    });
+    const sealed = encryptToken('access-sandbox-expired');
+    global.fetch = async (url, options = {}) => {
+      calls.push([url, options.method || 'GET']);
+      if (url.endsWith('/auth/v1/user')) return {ok: true, json: async () => ({id: 'user-1'})};
+      if (url.includes('/bank_connections') && options.method === 'DELETE')
+        return {ok: true, text: async () => ''};
+      if (url.includes('/bank_connections')) return {ok: true, text: async () => JSON.stringify([
+        {id: 'connection-1', user_id: 'user-1', ...sealed},
+      ])};
+      if (url.includes('/billing_subscriptions')) return {ok: true, text: async () => JSON.stringify([
+        {stripe_subscription_id: 'sub_expired'},
+      ])};
+      if (url.includes('/subscriptions/sub_expired')) return {ok: true,
+        json: async () => ({status: 'canceled'})};
+      if (url.includes('/item/remove')) return {ok: true, json: async () => ({removed: true})};
+      throw new Error('Unexpected request');
+    };
+    const res = fakeResponse();
+    await require('../api/test-bank')({method: 'POST', query: {action: 'status'},
+      headers: {authorization: 'Bearer sample'}}, res);
+    assert.equal(res.code, 200);
+    assert.deepEqual(res.payload, {linked: false, lastSyncedAt: null, accounts: [], transactions: []});
+    assert.equal(calls.some(([url]) => url.includes('/item/remove')), true);
+    assert.equal(calls.some(([url, method]) => url.includes('/bank_connections') && method === 'DELETE'), true);
+    assert.equal(calls.some(([url]) => url.includes('/bank_transactions')), false);
+  } finally {
+    global.fetch = originalFetch;
+    for (const key of configKeys) {
+      if (before[key] === undefined) delete process.env[key];
+      else process.env[key] = before[key];
+    }
+  }
+});
