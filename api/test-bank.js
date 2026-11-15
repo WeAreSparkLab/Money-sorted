@@ -12,6 +12,14 @@ async function ownConnection(userId) {
   return rows?.[0] || null;
 }
 
+async function removeConnection(connection, userId) {
+  await plaid('/item/remove', {access_token: decryptToken(connection)});
+  await db('bank_connections', {
+    method: 'DELETE',
+    query: new URLSearchParams({id: 'eq.' + connection.id, user_id: 'eq.' + userId}).toString(),
+  });
+}
+
 async function subscriptionActive(userId) {
   const rows = await db('billing_subscriptions', {
     query: new URLSearchParams({user_id: 'eq.' + userId, select: 'stripe_subscription_id'}).toString(),
@@ -132,6 +140,10 @@ module.exports = async function handler(req, res) {
     }
     const connection = await ownConnection(user.id);
     if (action === 'status') {
+      if (connection && !await subscriptionActive(user.id)) {
+        await removeConnection(connection, user.id);
+        return send(res, 200, {linked: false, lastSyncedAt: null, accounts: [], transactions: []});
+      }
       const accounts = await ownAccounts(user.id);
       const transactions = await db('bank_transactions', {
         query: new URLSearchParams({
@@ -146,14 +158,11 @@ module.exports = async function handler(req, res) {
     }
     if (action === 'disconnect') {
       if (!connection) return send(res, 200, {disconnected: true});
-      await plaid('/item/remove', {access_token: decryptToken(connection)});
-      await db('bank_connections', {
-        method: 'DELETE',
-        query: new URLSearchParams({id: 'eq.' + connection.id, user_id: 'eq.' + user.id}).toString(),
-      });
+      await removeConnection(connection, user.id);
       return send(res, 200, {disconnected: true});
     }
     if (!await subscriptionActive(user.id)) {
+      if (connection) await removeConnection(connection, user.id);
       return send(res, 403, {error: 'A Stripe test subscription is required for Sandbox linking.'});
     }
     if (action === 'link-token') {
