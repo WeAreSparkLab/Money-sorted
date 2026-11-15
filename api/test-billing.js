@@ -1,6 +1,6 @@
 'use strict';
 
-const {db, errorResponse, method, requireTestConfig, send, stripe, userFromRequest} =
+const {db, errorResponse, isOwnTestSubscription, method, requireTestConfig, send, stripe, userFromRequest} =
   require('../server/test-integrations');
 
 async function refreshSubscription(user, record) {
@@ -8,9 +8,7 @@ async function refreshSubscription(user, record) {
   const subscriptions = await stripe('/subscriptions?' + new URLSearchParams({
     customer: record.stripe_customer_id, status: 'all', limit: '100',
   }), {}, 'GET');
-  const subscription = subscriptions.data?.find(sub =>
-    sub.metadata?.supabase_user_id === user.id &&
-    sub.items?.data?.some(item => item.price?.id === process.env.STRIPE_TEST_PRICE_ID));
+  const subscription = subscriptions.data?.find(sub => isOwnTestSubscription(sub, user.id));
   const periodEnd = subscription?.items?.data?.[0]?.current_period_end ||
     subscription?.current_period_end;
   const updated = {
@@ -93,3 +91,4 @@ module.exports = async function handler(req, res) {
     return errorResponse(res, error);
   }
 };
+
