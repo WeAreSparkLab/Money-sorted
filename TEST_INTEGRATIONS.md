@@ -2,6 +2,15 @@
 
 This branch contains **test-only** Stripe Checkout and Plaid Sandbox endpoints. The test page is `/linked-bank-test.html`. It is not linked from the public tracker. The endpoints reject production Vercel deployments, live Stripe keys and non-Sandbox Plaid settings.
 
+## Verified Sandbox run, 15 November 2026
+
+- Stripe test Checkout created a subscription for the disposable `+money-sorted-test` account. The signed-in status request recorded `active` with a period end of 15 December 2026. No live payment was made.
+- Plaid Sandbox Link created one synthetic current account and 106 synthetic transactions. The second disposable test account had no connection, account or transaction rows. This is a database row check; an interactive second-user browser isolation test is still outstanding.
+- Stripe Customer Portal scheduled cancellation at period end; the database recorded `cancel_at_period_end = true` while the test subscription remained active. The test page now displays this scheduled cancellation.
+- Disconnect removed the Plaid Sandbox connection. The database then showed zero connection, account and transaction rows for the test user, while the Stripe test subscription remained active and scheduled to cancel.
+- The preview deployment was protected by Vercel Authentication, and all integration credentials were verified as sensitive variables scoped to the `linked-debit-accounts` Preview branch. No integration credential remained assigned to Production. The unchanged production commit was redeployed after correcting that scope.
+- Automated checks: `node --test` passed 17 tests on 14 November; the test-page script syntax check and focused integration tests passed after the cancellation-display change. No live bank, live charge, public subscription or production release was tested.
+
 ## Before any connected preview
 
 1. The four new tables were added to the existing `sparklab-apps` project on 14 November 2026 after owner approval using `migrations/20261114_linked_debit_accounts.sql`. Existing financial rows were not modified. The new tables have RLS; browser roles have no write access, and `bank_connections` (which stores encrypted Plaid tokens) has no browser read access. Use a disposable test login within this shared project. Confirm two-user isolation before any connected preview.
