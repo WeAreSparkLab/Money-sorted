@@ -4,31 +4,35 @@ const crypto = require('node:crypto');
 
 const schema = 'moneysorted';
 
+function configurationError(code, message) {
+  return Object.assign(new Error(message), {code});
+}
+
 function publicTestConfig() {
-  if (process.env.VERCEL_ENV === 'production') throw new Error('Test integrations are disabled in production');
+  if (process.env.VERCEL_ENV === 'production') throw configurationError('CONFIG_PRODUCTION', 'Test integrations are disabled in production');
   if (process.env.VERCEL_ENV === 'preview' &&
       process.env.VERCEL_GIT_COMMIT_REF !== 'linked-debit-accounts') {
-    throw new Error('Test integrations are limited to the linked-debit preview');
+    throw configurationError('CONFIG_BRANCH', 'Test integrations are limited to the linked-debit preview');
   }
   const url = process.env.TEST_SUPABASE_URL;
   const key = process.env.TEST_SUPABASE_PUBLISHABLE_KEY;
   if (!/^https:\/\/[a-z0-9]+\.supabase\.co$/.test(url || '') || !key?.startsWith('sb_publishable_')) {
-    throw new Error('Test Supabase project is not configured');
+    throw configurationError('CONFIG_SUPABASE_PUBLIC', 'Test Supabase project is not configured');
   }
   return {url, key};
 }
 
 function requireTestConfig() {
   publicTestConfig();
-  if (!process.env.STRIPE_SECRET_KEY?.startsWith('sk_test_')) throw new Error('Stripe test mode is not configured');
+  if (!process.env.STRIPE_SECRET_KEY?.startsWith('sk_test_')) throw configurationError('CONFIG_STRIPE', 'Stripe test mode is not configured');
   if (process.env.PLAID_ENV !== 'sandbox' || !process.env.PLAID_CLIENT_ID || !process.env.PLAID_SECRET) {
-    throw new Error('Plaid Sandbox is not configured');
+    throw configurationError('CONFIG_PLAID', 'Plaid Sandbox is not configured');
   }
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY || !process.env.BANK_TOKEN_ENCRYPTION_KEY) {
-    throw new Error('Server-side storage is not configured');
+    throw configurationError('CONFIG_STORAGE', 'Server-side storage is not configured');
   }
   const key = Buffer.from(process.env.BANK_TOKEN_ENCRYPTION_KEY, 'base64');
-  if (key.length !== 32) throw new Error('Invalid encryption configuration');
+  if (key.length !== 32) throw configurationError('CONFIG_ENCRYPTION', 'Invalid encryption configuration');
   return key;
 }
 
@@ -77,7 +81,8 @@ async function db(table, {method = 'GET', query = '', data, preference} = {}) {
     },
     ...(data === undefined ? {} : {body: JSON.stringify(data)}),
   });
-  if (!response.ok) throw new Error(`Storage operation failed (${response.status})`);
+  if (!response.ok) throw Object.assign(new Error('Storage operation failed'),
+    {code: `STORAGE_HTTP_${response.status}`});
   const text = await response.text();
   return text ? JSON.parse(text) : null;
 }
@@ -92,7 +97,8 @@ async function stripe(path, params, method = 'POST') {
     ...(method === 'POST' ? {body: new URLSearchParams(params)} : {}),
   });
   const result = await response.json();
-  if (!response.ok) throw new Error(result.error?.message || 'Stripe request failed');
+  if (!response.ok) throw Object.assign(new Error(result.error?.message || 'Stripe request failed'),
+    {code: `STRIPE_HTTP_${response.status}`});
   return result;
 }
 
