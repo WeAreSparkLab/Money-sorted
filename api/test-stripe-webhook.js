@@ -14,6 +14,13 @@ async function syncSubscription(id) {
   const userId = subscription.metadata?.supabase_user_id;
   if (!/^[0-9a-f]{8}-[0-9a-f-]{27,}$/.test(userId || '')) throw new Error('Unmapped test subscription');
   if (!isOwnTestSubscription(subscription, userId)) return;
+  // Status requests reconcile ended subscriptions; an old webhook must not
+  // recreate a billing row after the user has deleted their test data.
+  if (['canceled', 'incomplete_expired'].includes(subscription.status)) return;
+  const rows = await db('billing_subscriptions', {
+    query: new URLSearchParams({user_id: 'eq.' + userId, select: 'stripe_customer_id'}).toString(),
+  });
+  if (rows?.[0]?.stripe_customer_id !== subscription.customer) return;
   const periodEnd = subscription.items?.data?.[0]?.current_period_end ||
     subscription.current_period_end;
   await db('billing_subscriptions', {
@@ -54,4 +61,3 @@ module.exports = async function handler(req, res) {
   }
 };
 module.exports.config = {api: {bodyParser: false}};
-
