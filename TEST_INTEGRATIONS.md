@@ -5,11 +5,12 @@ This branch contains **test-only** Stripe Checkout and Plaid Sandbox endpoints. 
 ## Verified Sandbox run, 15 November 2026
 
 - Stripe test Checkout created a subscription for the disposable `+money-sorted-test` account. The signed-in status request recorded `active` with a period end of 15 December 2026. No live payment was made.
-- Plaid Sandbox Link created one synthetic current account and 106 synthetic transactions. The second disposable test account had no connection, account or transaction rows. This is a database row check; an interactive second-user browser isolation test is still outstanding.
+- Plaid Sandbox Link created one synthetic current account and 106 synthetic transactions. The second disposable test account showed no subscription, connection, account or transaction data both in the browser and in a database row check.
+- Stripe's generic-decline test card was rejected for the second account; the user observed status `none` and bank linking disabled. A later accidental successful test-card entry created an active test subscription for that account, explaining its later database status.
 - Stripe Customer Portal scheduled cancellation at period end; the database recorded `cancel_at_period_end = true` while the test subscription remained active. The test page now displays this scheduled cancellation.
 - Disconnect removed the Plaid Sandbox connection. The database then showed zero connection, account and transaction rows for the test user, while the Stripe test subscription remained active and scheduled to cancel.
 - The preview deployment was protected by Vercel Authentication, and all integration credentials were verified as sensitive variables scoped to the `linked-debit-accounts` Preview branch. No integration credential remained assigned to Production. The unchanged production commit was redeployed after correcting that scope.
-- Automated checks: `node --test` passed 17 tests on 14 November; the test-page script syntax check and focused integration tests passed after the cancellation-display change. No live bank, live charge, public subscription or production release was tested.
+- Automated checks: `node --test` passed 18 tests on 15 November, including an expired-subscription case that revokes the Sandbox Item and hides cached bank data. The actual expiry transition remains untested end to end. No live bank, live charge, public subscription or production release was tested.
 
 ## Before any connected preview
 
@@ -45,7 +46,7 @@ This branch contains **test-only** Stripe Checkout and Plaid Sandbox endpoints. 
 - The test page does not yet resume a UK bank OAuth redirect. Validate that flow separately before testing Lloyds or any real institution.
 - The test endpoints require explicit preview-only secrets. Giving a preview server the shared project's service-role key is a stronger secret-management risk than using a separate test project. Review its deployment protection, secret scope and logs before configuring it. Never put that key in the browser or a public build log.
 - The `/api/test-bank?action=sync` endpoint reads Plaid's cached account balance from `/accounts/get`. It does not promise an instant balance and does not call the potentially charged real-time Balance endpoint.
-- A production implementation needs a quote-backed connection/refresh cap, provider webhook validation, token revocation during account deletion and subscription expiry, account export, retry monitoring and end-to-end tests.
+- On the test branch, an inactive subscription revokes the Plaid Item and removes cached bank data when the user next opens or refreshes the test page. Production still needs scheduled expiry cleanup, retry handling when Plaid revocation fails, deletion integration, provider webhook validation, account export and a quote-backed connection/refresh cap.
 
 ## Plaid UK quote request
 
