@@ -5,7 +5,7 @@ const crypto = require('node:crypto');
 const test = require('node:test');
 const {Readable} = require('node:stream');
 const {
-  decryptToken, encryptToken, requireTestConfig, verifyStripeSignature,
+  decryptToken, encryptToken, isOwnTestSubscription, requireTestConfig, verifyStripeSignature,
 } = require('../server/test-integrations');
 
 const configKeys = [
@@ -72,6 +72,19 @@ test('Stripe signature requires exact payload, valid timestamp and signing key',
   assert.equal(verifyStripeSignature(Buffer.from('{}'), header, secret, now), false);
   assert.equal(verifyStripeSignature(raw, header, secret, now + 301_000), false);
 });
+
+test('only the signed-in user’s test product grants bank access', () => withConfig(() => {
+  process.env.STRIPE_TEST_PRICE_ID = 'price_money_sorted';
+  const subscription = {
+    livemode: false, status: 'active', metadata: {supabase_user_id: 'user-1'},
+    items: {data: [{price: {id: 'price_money_sorted'}}]},
+  };
+  assert.equal(isOwnTestSubscription(subscription, 'user-1'), true);
+  assert.equal(isOwnTestSubscription(subscription, 'user-2'), false);
+  assert.equal(isOwnTestSubscription({...subscription, livemode: true}, 'user-1'), false);
+  assert.equal(isOwnTestSubscription({...subscription,
+    items: {data: [{price: {id: 'price_other_app'}}]}}, 'user-1'), false);
+}));
 
 function fakeResponse() {
   return {
@@ -164,9 +177,9 @@ test('billing status reconciles a paid test subscription without webhook deliver
         ok: true, text: async () => JSON.stringify([{user_id: 'user-1', stripe_customer_id: 'cus_test'}]),
       };
       if (url.includes('/subscriptions?')) return {ok: true, json: async () => ({data: [
-        {id: 'sub_other', status: 'active', metadata: {supabase_user_id: 'other'},
+        {id: 'sub_other', livemode: false, status: 'active', metadata: {supabase_user_id: 'other'},
           items: {data: [{price: {id: 'price_test'}}]}},
-        {id: 'sub_test', status: 'active', metadata: {supabase_user_id: 'user-1'},
+        {id: 'sub_test', livemode: false, status: 'active', metadata: {supabase_user_id: 'user-1'},
           items: {data: [{price: {id: 'price_test'}, current_period_end: 1800000000}]}},
       ]})};
       throw new Error('Unexpected request');
@@ -200,6 +213,7 @@ test('expired subscription revokes Sandbox Item and hides cached bank data', asy
       VERCEL_ENV: 'preview', VERCEL_GIT_COMMIT_REF: 'linked-debit-accounts',
       TEST_SUPABASE_URL: 'https://exampleabc.supabase.co',
       TEST_SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_example',
+      STRIPE_TEST_PRICE_ID: 'price_test',
     });
     const sealed = encryptToken('access-sandbox-expired');
     global.fetch = async (url, options = {}) => {
@@ -214,7 +228,9 @@ test('expired subscription revokes Sandbox Item and hides cached bank data', asy
         {stripe_subscription_id: 'sub_expired'},
       ])};
       if (url.includes('/subscriptions/sub_expired')) return {ok: true,
-        json: async () => ({status: 'canceled'})};
+        json: async () => ({livemode: false, status: 'canceled',
+          metadata: {supabase_user_id: 'user-1'},
+          items: {data: [{price: {id: 'price_test'}}]}})};
       if (url.includes('/item/remove')) return {ok: true, json: async () => ({removed: true})};
       throw new Error('Unexpected request');
     };
@@ -234,3 +250,4 @@ test('expired subscription revokes Sandbox Item and hides cached bank data', asy
     }
   }
 });
+
