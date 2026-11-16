@@ -168,6 +168,10 @@ module.exports = async function handler(req, res) {
     }
     if (action === 'link-token') {
       if (connection) return send(res, 409, {error: 'One test bank connection is already linked.'});
+      if (process.env.PLAID_TEST_REDIRECT_URI &&
+          process.env.PLAID_TEST_REDIRECT_URI !== process.env.TEST_APP_ORIGIN + '/linked-bank-test.html') {
+        throw new Error('Sandbox redirect must return to this preview');
+      }
       const link = await plaid('/link/token/create', {
         user: {client_user_id: user.id},
         client_name: 'Money, Sorted (test)',
@@ -228,4 +232,3 @@ module.exports = async function handler(req, res) {
     return errorResponse(res, error);
   }
 };
-
