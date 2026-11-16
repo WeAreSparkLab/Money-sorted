@@ -1,0 +1,60 @@
+# Linked-bank subscription test setup
+
+This branch contains **test-only** Stripe Checkout and Plaid Sandbox endpoints. The test page is `/linked-bank-test.html`. It is not linked from the public tracker. The endpoints reject production Vercel deployments, live Stripe keys and non-Sandbox Plaid settings.
+
+## Verified Sandbox run, 15 November 2026
+
+- Stripe test Checkout created a subscription for the disposable `+money-sorted-test` account. The signed-in status request recorded `active` with a period end of 15 December 2026. No live payment was made.
+- Plaid Sandbox Link created one synthetic current account and 106 synthetic transactions. The second disposable test account showed no subscription, connection, account or transaction data both in the browser and in a database row check.
+- Stripe's generic-decline test card was rejected for the second account; the user observed status `none` and bank linking disabled. A later accidental successful test-card entry created an active test subscription for that account, explaining its later database status.
+- Stripe Customer Portal scheduled cancellation at period end; the database recorded `cancel_at_period_end = true` while the test subscription remained active. The test page now displays this scheduled cancellation.
+- Disconnect removed the Plaid Sandbox connection. The database then showed zero connection, account and transaction rows for the test user, while the Stripe test subscription remained active and scheduled to cancel.
+- The preview deployment was protected by Vercel Authentication, and all integration credentials were verified as sensitive variables scoped to the `linked-debit-accounts` Preview branch. No integration credential remained assigned to Production. The unchanged production commit was redeployed after correcting that scope.
+- Automated checks: `node --test` passed 27 tests on 16 November, including expired-subscription cleanup, account-deletion failure cases, static-only service-worker caching and per-user OAuth return state. The actual expiry and OAuth transitions remain untested end to end. No live bank, live charge, public subscription or production release was tested.
+- Preview account deletion now cancels the signed-in user's Money, Sorted test subscription, revokes their Plaid Sandbox Item, removes cached bank and billing rows, then invokes the existing financial-data deletion. It stops before the financial-data deletion if provider cleanup fails. This was verified with mocked provider requests and automated checks; no user's records were deleted for this test. The shared SparkLab login and Stripe's historical billing records are retained.
+
+## Before any connected preview
+
+1. The four new tables were added to the existing `sparklab-apps` project on 14 November 2026 after owner approval using `migrations/20261114_linked_debit_accounts.sql`. Existing financial rows were not modified. The new tables have RLS; browser roles have no write access, and `bank_connections` (which stores encrypted Plaid tokens) has no browser read access. Use a disposable test login within this shared project. Confirm two-user isolation before any connected preview.
+2. The existing **SparkQuotes Stripe account**, in **test mode**, now has product `prod_VcsSGa5Sf9VtFI` and monthly recurring price `price_1UbchfIKcVHKjjafJpdLli5Z` at a **£1 test placeholder**. This is not the public price or a decision to bill Money, Sorted through SparkQuotes in production. The signed-in test page reconciles subscription status directly from Stripe after Checkout, so a protected preview can be tested without webhook delivery. Configure a test webhook later on a securely reachable endpoint for `customer.subscription.created`, `customer.subscription.updated` and `customer.subscription.deleted`. Test-mode customer portal cancellation is already enabled, effective at the end of the billing period.
+3. In Plaid Dashboard, use **Sandbox** credentials. Register the exact `TEST_APP_ORIGIN` plus `/linked-bank-test.html` as an allowed redirect URI, then set `PLAID_TEST_REDIRECT_URI` to that same URL for the branch-only preview. The test page now stores the initial Link token for at most 30 minutes and resumes Plaid Link only for the same signed-in user after `oauth_state_id` returns. This is prepared in code but has not been verified with a real redirect. Use Plaid's test institution and fake credentials; do not connect a real account or copy live financial records.
+   Plaid Sandbox Dashboard access was verified on 14 November 2026. No Plaid key was copied into source control or chat.
+4. Set the following variables only for the intended Vercel **Preview** environment, in Vercel's secret store:
+
+   | Variable | Value |
+   | --- | --- |
+   | `STRIPE_SECRET_KEY` | Stripe secret beginning `sk_test_` |
+   | `STRIPE_TEST_PRICE_ID` | `price_1UbchfIKcVHKjjafJpdLli5Z` (test placeholder) |
+   | `STRIPE_TEST_WEBHOOK_SECRET` | Test endpoint signing secret, only when a securely reachable webhook is configured |
+   | `PLAID_ENV` | `sandbox` |
+   | `PLAID_CLIENT_ID` | Plaid client ID |
+   | `PLAID_SECRET` | Plaid Sandbox secret |
+   | `PLAID_TEST_REDIRECT_URI` | Exact registered preview callback URI, if required |
+   | `SUPABASE_SERVICE_ROLE_KEY` | Server-only key for the reviewed project |
+   | `TEST_SUPABASE_URL` | Exact URL of the shared `sparklab-apps` Supabase project |
+   | `TEST_SUPABASE_PUBLISHABLE_KEY` | Publishable key of that project |
+   | `BANK_TOKEN_ENCRYPTION_KEY` | Fresh 32-byte random key encoded as base64 |
+   | `TEST_APP_ORIGIN` | Exact HTTPS preview origin, with no trailing slash |
+
+   Never paste any of these values into `index.html`, the test page, source control or a chat. The existing Supabase publishable key is public by design. The encryption key must be backed up securely: losing it makes stored Plaid tokens unreadable.
+   Scope secrets to the `linked-debit-accounts` Preview branch only. The server also refuses to run these integrations on another Vercel preview branch or on production. The current Vercel preview is protected by Vercel Authentication; verify that protection remains enabled before adding the shared project's service-role key.
+   The four non-secret settings `STRIPE_TEST_PRICE_ID`, `PLAID_ENV`, `TEST_SUPABASE_URL` and `TEST_APP_ORIGIN` are configured on this branch only. `TEST_SUPABASE_PUBLISHABLE_KEY`, a fresh `BANK_TOKEN_ENCRYPTION_KEY`, and the four provider/storage credentials are stored as sensitive branch-only variables. Their scope was verified with Vercel's environment listing; no test credential remains assigned to Production. Redeploy this preview after any variable change.
+5. Use the previously confirmed disposable Supabase account in the shared project to sign into the test page. Complete Stripe Checkout with a [test card](https://docs.stripe.com/testing), confirm the signed-in status request updates entitlement, then connect a Plaid Sandbox current account. Test refresh, transaction changes, cancellation, failed payment, disconnect and a second user's isolation. Test signed webhook delivery separately once it has a securely reachable endpoint. Never use the owner's real financial records as test data.
+
+## Known gaps before public release
+
+- This branch has no live billing, live Plaid connection, provider webhooks, scheduled refresh, production data-deletion integration, customer terms, approved retail price or UK provider contract.
+- The test page has an OAuth return path, but its redirect URI has not been registered and the flow has not been tested end to end. Validate it in Sandbox before testing Lloyds or any real institution.
+- The test endpoints require explicit preview-only secrets. Giving a preview server the shared project's service-role key is a stronger secret-management risk than using a separate test project. Review its deployment protection, secret scope and logs before configuring it. Never put that key in the browser or a public build log.
+- The `/api/test-bank?action=sync` endpoint reads Plaid's cached account balance from `/accounts/get`. It does not promise an instant balance and does not call the potentially charged real-time Balance endpoint.
+- On the test branch, an inactive subscription revokes the Plaid Item and removes cached bank data when the user next opens or refreshes the test page. Production still needs scheduled expiry cleanup, retry handling when Plaid revocation fails, deletion integration, provider webhook validation, account export and a quote-backed connection/refresh cap.
+- The preview cleanup uses its branch URL to select the server step. A future live linked-bank release needs a production deletion flow, provider retry and reconciliation handling, and a reviewed policy for Stripe's retained billing records.
+- Bank access, billing status reconciliation and the signed Stripe webhook now require the subscription to belong to the signed-in user, be in test mode and contain the Money, Sorted test price. This guards against granting bank access from another SparkQuotes product.
+
+## Plaid UK quote request
+
+Submitted through Plaid's Talk to Sales form on 15 November 2026 using the SparkLab support address. Plaid displayed “Your message has been sent”; the written quote is pending. No paid plan or production access was accepted.
+
+> We are building Money, Sorted, a UK personal finance web app. Users would connect one UK current account, starting with Lloyds, to view their balance and transactions. We need account-data access only; we will not initiate payments. Please quote UK production access for Transactions and cached account balances, plus optional Balance calls. Please specify any monthly or annual minimum, per-active-Item/connection charge, per-call Balance and refresh charges, included usage, whether failed or expired Items remain billable, Lloyds current-account coverage, consent renewal requirements, data retention terms and the steps for moving from Sandbox to production. We expect to start with a small number of users and need to know the minimum cost before setting a customer subscription price.
+
+Do not accept a paid Plaid contract until its exact terms and projected break-even subscriber count have been reviewed.
