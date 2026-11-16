@@ -7,7 +7,10 @@ module.exports = async function handler(req, res) {
   try {
     const {url, key} = publicTestConfig();
     return send(res, 200, {supabaseUrl: url, supabasePublishableKey: key});
-  } catch {
+  } catch (error) {
+    if (['CONFIG_PRODUCTION', 'CONFIG_BRANCH'].includes(error.code)) {
+      return send(res, 404, {error: 'The test connection is unavailable here.'});
+    }
     return send(res, 503, {error: 'The test connection is not configured.'});
   }
 };
