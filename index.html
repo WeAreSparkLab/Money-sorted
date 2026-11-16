@@ -620,14 +620,16 @@
     await sb.auth.signOut();
   });
   document.getElementById('deleteDataBtn').addEventListener('click', async () => {
-    const linkedTestPreview = location.hostname.includes('linked-debit-accounts');
-    const typed = window.prompt('This permanently removes your Money, Sorted financial data.'+
-      (linkedTestPreview ? ' It also cancels your test subscription and disconnects your Sandbox bank.' : '')+
-      ' Your shared SparkLab login remains. Type DELETE to continue.');
-    if(typed !== 'DELETE') return;
     const btn = document.getElementById('deleteDataBtn');
     btn.disabled = true;
     try{
+      const probe = await fetch('/api/test-config', {cache:'no-store'});
+      if(!probe.ok && probe.status !== 404) throw new Error('Could not check linked bank data. Please try again.');
+      const linkedTestPreview = probe.ok;
+      const typed = window.prompt('This permanently removes your Money, Sorted financial data.'+
+        (linkedTestPreview ? ' It also cancels your test subscription and disconnects your Sandbox bank.' : '')+
+        ' Your shared SparkLab login remains. Type DELETE to continue.');
+      if(typed !== 'DELETE') return;
       pendingSaves.forEach(record => clearTimeout(record.timer));
       pendingSaves.clear();
       await Promise.all([...activeSaves.values()]);
@@ -1362,4 +1364,3 @@
 </script>
 </body>
 </html>
-
