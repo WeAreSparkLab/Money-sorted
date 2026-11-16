@@ -95,6 +95,39 @@ function fakeResponse() {
   };
 }
 
+test('test configuration distinguishes unavailable branches from broken preview setup', async () => {
+  const keys = ['VERCEL_ENV', 'VERCEL_GIT_COMMIT_REF',
+    'TEST_SUPABASE_URL', 'TEST_SUPABASE_PUBLISHABLE_KEY'];
+  const before = Object.fromEntries(keys.map(key => [key, process.env[key]]));
+  try {
+    const handler = require('../api/test-config');
+    process.env.VERCEL_ENV = 'production';
+    let res = fakeResponse();
+    await handler({method: 'GET'}, res);
+    assert.equal(res.code, 404);
+    process.env.VERCEL_ENV = 'preview';
+    process.env.VERCEL_GIT_COMMIT_REF = 'another-branch';
+    res = fakeResponse();
+    await handler({method: 'GET'}, res);
+    assert.equal(res.code, 404);
+    process.env.VERCEL_GIT_COMMIT_REF = 'linked-debit-accounts';
+    delete process.env.TEST_SUPABASE_URL;
+    res = fakeResponse();
+    await handler({method: 'GET'}, res);
+    assert.equal(res.code, 503);
+    process.env.TEST_SUPABASE_URL = 'https://exampleabc.supabase.co';
+    process.env.TEST_SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_example';
+    res = fakeResponse();
+    await handler({method: 'GET'}, res);
+    assert.equal(res.code, 200);
+  } finally {
+    for (const key of keys) {
+      if (before[key] === undefined) delete process.env[key];
+      else process.env[key] = before[key];
+    }
+  }
+});
+
 test('bank and billing endpoints reject requests without a signed-in user', async () => {
   const before = Object.fromEntries(configKeys.map(key => [key, process.env[key]]));
   try {
