@@ -253,6 +253,7 @@
         <button type="button" class="password-eye" data-password-toggle="newPassword" aria-label="Show new password" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/><path class="eye-slash" d="M3 21 21 3"/></svg></button></div>
       <button class="btn-primary" id="setPasswordBtn">Set new password</button>
     </div>
+    <button class="btn-primary" id="guestBtn" type="button" style="margin-top:12px;background:transparent;color:var(--positive);border:1px solid var(--positive)">Explore as a guest</button>
     <div class="auth-msg" id="authMsg" role="status" aria-live="polite"></div>
     <p class="auth-toggle"><a class="privacy-link" href="https://www.wearesparklab.com/money-sorted">How this app works</a> · <a class="privacy-link" href="/privacy.html">Privacy notice</a></p>
   </div>
@@ -425,6 +426,7 @@
 
   // ---------- state ----------
   let session = null;
+  let guestMode = false;
   let outgoings = [];
   let creditCards = [];
   let cardItems = [];
@@ -604,6 +606,7 @@
     authSubmit.classList.add('hidden');
     authToggle.classList.add('hidden');
     document.getElementById('forgotPasswordRow').classList.add('hidden');
+    document.getElementById('guestBtn').classList.add('hidden');
     document.getElementById('resetPanel').classList.remove('hidden');
     document.getElementById('newPassword').focus();
   }
@@ -624,6 +627,7 @@
   });
 
   document.getElementById('logoutBtn').addEventListener('click', async () => {
+    if(guestMode){ guestMode = false; showAuth(); return; }
     if(!await flushPendingSaves() && !window.confirm('Some changes could not be saved. Log out anyway?')) return;
     await sb.auth.signOut();
   });
@@ -667,6 +671,7 @@
     authSubmit.classList.remove('hidden');
     authToggle.classList.remove('hidden');
     document.getElementById('forgotPasswordRow').classList.remove('hidden');
+    document.getElementById('guestBtn').classList.remove('hidden');
     document.getElementById('resetPanel').classList.add('hidden');
     setAuthMode(false);
   }
@@ -1257,6 +1262,9 @@
     document.getElementById('outgoingNextPill').innerHTML = '';
     const userId = uid();
     document.getElementById('accountEmail').textContent = session.user.email;
+    document.getElementById('logoutBtn').textContent = 'Log out';
+    app.querySelectorAll('input, select, button').forEach(el => { el.disabled = false; });
+    document.getElementById('saveStatus').classList.remove('hidden');
 
     let settingsRows = requireData(await sb.schema('moneysorted').from('settings').select('*').eq('user_id', userId));
     if(!settingsRows || settingsRows.length === 0){
@@ -1325,6 +1333,44 @@
     showApp();
   }
 
+  // ---------- guest preview: sample figures stay entirely in this browser session ----------
+  function showGuestPreview(){
+    guestMode = true;
+    firstRender = true;
+    historyRows = null;
+    historyPanel.classList.add('hidden');
+    historyBtn.textContent = 'View past months';
+    document.getElementById('accountEmail').textContent = 'Guest preview';
+    document.getElementById('logoutBtn').textContent = 'Back to sign in';
+    document.getElementById('saveStatus').classList.add('hidden');
+    income = 1600;
+    includeScheduleIncome = true;
+    document.getElementById('incomeInput').value = income;
+    document.getElementById('includeScheduleIncome').checked = true;
+    outgoings = [
+      {id:'demo-rent', name:'Rent', amount:650, due_day:1, is_recurring:true},
+      {id:'demo-food', name:'Food shop', amount:220, due_day:7, is_recurring:true},
+      {id:'demo-phone', name:'Phone', amount:25, due_day:15, is_recurring:true}
+    ];
+    creditCards = [{id:'demo-card', name:'Example credit card', credit_limit:500}];
+    cardItems = [{id:'demo-card-item', card_id:'demo-card', name:'Monthly spending', amount:80, entry_type:'purchase'}];
+    schedules = [{id:'demo-payment', label:'Example payment', amount:100,
+      start_date:localDateISO(new Date()), interval_days:28, frequency:'four_weekly'}];
+    receivedPayments = [];
+    renderLedger(outgoings, 'outgoingsBody', 'outgoings', recalcOutgoings, true);
+    renderCreditCards();
+    renderSchedules();
+    recalcOutgoings();
+    document.getElementById('onboardingPanel').classList.add('hidden');
+    document.getElementById('todaySub').textContent = 'Explore with sample figures. Create an account to save your own plan.';
+    app.querySelectorAll('input, select, button').forEach(el => {
+      if(el.id !== 'logoutBtn' && el.id !== 'onboardingOpen') el.disabled = true;
+    });
+    firstRender = false;
+    showApp();
+  }
+  document.getElementById('guestBtn').addEventListener('click', showGuestPreview);
+
   // ---------- boot ----------
   let currentUserId = null;
 
@@ -1350,7 +1396,7 @@
     if(newUserId === currentUserId) return;
     currentUserId = newUserId;
     session = s;
-    if(s){ loadAllData().catch(showDataError); } else { showAuth(); }
+    if(s){ guestMode = false; loadAllData().catch(showDataError); } else if(!guestMode){ showAuth(); }
   });
 })();
 </script>
