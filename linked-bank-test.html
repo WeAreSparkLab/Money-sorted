@@ -50,6 +50,7 @@
   </section>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
+  <script src="/linked-bank-oauth.js"></script>
   <script>
     (async function(){
       const el=id=>document.getElementById(id);
@@ -84,6 +85,43 @@
           el(id).disabled=true;
         el('accounts').replaceChildren();el('transactions').replaceChildren();
       }
+      function openLink(linkToken, receivedRedirectUri){
+        if(!window.Plaid) throw new Error('Plaid Link could not load.');
+        const link=Plaid.create({
+          token:linkToken,
+          ...(receivedRedirectUri ? {receivedRedirectUri} : {}),
+          onSuccess:async publicToken=>{
+            MoneySortedOAuth.clear(localStorage);
+            if(receivedRedirectUri) history.replaceState(null,'',location.pathname);
+            await run(async()=>{await call('bank','exchange',{publicToken});});
+          },
+          onExit:error=>{
+            if(receivedRedirectUri){
+              MoneySortedOAuth.clear(localStorage);
+              history.replaceState(null,'',location.pathname);
+            }
+            say('Sandbox connection was not completed. Please try again.',!!error);
+          }
+        });
+        link.open();
+      }
+      async function resumeOAuth(){
+        const params=new URLSearchParams(location.search);
+        if(!params.has('oauth_state_id')) return;
+        if(params.getAll('oauth_state_id').length!==1 || !params.get('oauth_state_id') ||
+           [...params.keys()].some(key=>key!=='oauth_state_id') || location.hash){
+          say('Unexpected bank return link. Start the Sandbox connection again.',true);
+          return;
+        }
+        const {data}=await sb.auth.getSession();
+        if(!data.session){say('Sign in with the same test account to finish connecting.',true);return;}
+        const linkToken=MoneySortedOAuth.load(localStorage,data.session.user.id);
+        if(!linkToken){
+          say('The bank connection session expired or belongs to another account. Start again.',true);
+          return;
+        }
+        openLink(linkToken,location.href);
+      }
       async function refresh(){
         const {data:sessionData}=await sb.auth.getSession();
         if(!sessionData.session){signedOut();return;}
@@ -116,28 +154,35 @@
       }
       el('subscribeBtn').onclick=()=>run(async()=>{location.href=(await call('billing','checkout')).url;});
       el('refreshBtn').onclick=()=>run(async()=>{});
-      el('loginBtn').onclick=()=>run(async()=>{
-        const {error}=await sb.auth.signInWithPassword({
-          email:el('email').value.trim(),password:el('password').value
+      el('loginBtn').onclick=async()=>{
+        let signedIn=false;
+        await run(async()=>{
+          const {error}=await sb.auth.signInWithPassword({
+            email:el('email').value.trim(),password:el('password').value
+          });
+          if(error)throw error;el('password').value='';signedIn=true;
         });
-        if(error)throw error;el('password').value='';
+        if(signedIn) await resumeOAuth();
+      };
+      el('logoutBtn').onclick=()=>run(async()=>{
+        MoneySortedOAuth.clear(localStorage);
+        await sb.auth.signOut();
       });
-      el('logoutBtn').onclick=()=>run(async()=>{await sb.auth.signOut();});
       el('manageBtn').onclick=()=>run(async()=>{location.href=(await call('billing','portal')).url;});
-      el('connectBtn').onclick=()=>run(async()=>{
-        const {linkToken}=await call('bank','link-token');
-        if(!window.Plaid) throw new Error('Plaid Link could not load.');
-        const link=Plaid.create({
-          token:linkToken,
-          onSuccess:async publicToken=>{await run(async()=>{await call('bank','exchange',{publicToken});});},
-          onExit:error=>{if(error)say('Sandbox connection was not completed.',true);}
-        });
-        link.open();
-      });
+      el('connectBtn').onclick=async()=>{
+        say('Opening the Sandbox connection…');
+        try{
+          const {linkToken}=await call('bank','link-token');
+          const {data}=await sb.auth.getSession();
+          MoneySortedOAuth.save(localStorage,linkToken,data.session.user.id);
+          openLink(linkToken);
+        } catch(error){say(error.message,true);}
+      };
       el('syncBtn').onclick=()=>run(async()=>{await call('bank','sync');});
       el('disconnectBtn').onclick=()=>run(async()=>{await call('bank','disconnect');});
       try{await refresh();if(new URLSearchParams(location.search).get('checkout')==='success')
-        say('Checkout returned. Subscription status checked with Stripe.');}
+        say('Checkout returned. Subscription status checked with Stripe.');
+        await resumeOAuth();}
       catch(error){say(error.message,true);el('billingStatus').textContent='Unavailable';
         el('bankStatus').textContent='Unavailable';}
     })();
