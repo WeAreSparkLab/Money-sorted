@@ -341,6 +341,11 @@
           <p class="hint">Choose how often it arrives and enter the first date. For a specific date, choose One payment.</p>
           <div id="schedBlocks"></div>
           <button class="add-row" id="addSchedule">+ Add a payment type</button>
+          <button class="add-row" id="annualIncomeToggle" type="button" aria-expanded="false" aria-controls="annualIncomePanel">Show estimated annual income</button>
+          <div id="annualIncomePanel" class="totals hidden">
+            <div class="line big" id="annualIncomeLine">Estimated payment income, next 12 months — £0.00</div>
+            <p class="hint">Based on the payment dates and amounts above. This is an estimate; it does not include Other income or confirm that payments were received.</p>
+          </div>
         </div>
 
         <div id="cardsContainer"></div>
@@ -819,7 +824,38 @@
       return sum + (Number.isFinite(amount) ? amount : 0);
     }, 0);
   }
+  function estimatedAnnualPaymentIncome(){
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    const end = new Date(today.getFullYear() + 1, today.getMonth(), today.getDate());
+    let total = 0;
+    schedules.forEach(sched => {
+      const amount = Number(sched.amount);
+      if(!Number.isFinite(amount) || amount <= 0) return;
+      let occurrence = nextOccurrenceOnOrAfter(sched, today);
+      for(let count = 0; occurrence && occurrence < end && count < 366; count++){
+        total += amount;
+        occurrence = nextOccurrenceOnOrAfter(sched,
+          new Date(occurrence.getFullYear(), occurrence.getMonth(), occurrence.getDate() + 1));
+      }
+    });
+    return total;
+  }
+  const annualIncomeToggle = document.getElementById('annualIncomeToggle');
+  annualIncomeToggle.addEventListener('click', () => {
+    const panel = document.getElementById('annualIncomePanel');
+    const open = panel.classList.toggle('hidden') === false;
+    annualIncomeToggle.setAttribute('aria-expanded', String(open));
+    annualIncomeToggle.textContent = open ? 'Hide estimated annual income' : 'Show estimated annual income';
+    if(open) updateAnnualIncome();
+  });
+  function updateAnnualIncome(){
+    if(document.getElementById('annualIncomePanel').classList.contains('hidden')) return;
+    document.getElementById('annualIncomeLine').textContent =
+      'Estimated payment income, next 12 months — ' + fmt(estimatedAnnualPaymentIncome());
+  }
   function recalcOutgoings(){
+    updateAnnualIncome();
     const total = outgoings.reduce((s,r)=>s+(Number(r.amount)||0), 0);
     const scheduleIncome = paymentIncomeForMonth(schedules, currentMonthKey());
     const totalIncome = income + (includeScheduleIncome ? scheduleIncome : 0);
@@ -1262,6 +1298,9 @@
     document.getElementById('outgoingNextPill').innerHTML = '';
     const userId = uid();
     document.getElementById('accountEmail').textContent = session.user.email;
+    document.getElementById('annualIncomePanel').classList.add('hidden');
+    annualIncomeToggle.setAttribute('aria-expanded', 'false');
+    annualIncomeToggle.textContent = 'Show estimated annual income';
     document.getElementById('logoutBtn').textContent = 'Log out';
     app.querySelectorAll('input, select, button').forEach(el => { el.disabled = false; });
     document.getElementById('saveStatus').classList.remove('hidden');
@@ -1364,7 +1403,7 @@
     document.getElementById('onboardingPanel').classList.add('hidden');
     document.getElementById('todaySub').textContent = 'Explore with sample figures. Create an account to save your own plan.';
     app.querySelectorAll('input, select, button').forEach(el => {
-      if(el.id !== 'logoutBtn' && el.id !== 'onboardingOpen') el.disabled = true;
+      if(el.id !== 'logoutBtn' && el.id !== 'onboardingOpen' && el.id !== 'annualIncomeToggle') el.disabled = true;
     });
     firstRender = false;
     showApp();
